@@ -1,0 +1,35 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal steps / command / config (the `additional_config` you passed).
+      render: shell
+  - type: input
+    id: vllm
+    attributes:
+      label: vLLM version
+      description: Output of `python -c "import vllm; print(vllm.__version__)"`
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: value-steer / torch / Python / GPU
+      placeholder: "value-steer 0.1.0, torch 2.x, py3.11, A100"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant traceback. If a feature "ran but did nothing", note whether you set `strict=True`.
+      render: shell

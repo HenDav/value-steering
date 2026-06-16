@@ -1,0 +1,51 @@
+{
+  "0.19.1": {
+    "behavioral": true,
+    "note": "GPU-validated A100 80GB (oat), opt-125m, FA2, vLLM 0.19.1 / torch 2.10.0+cu128. 8 behavioral tests: abstention force/no-fire + batched-mixed (row 1:1) + ignore_eos skip; VFD candidate-forward shapes, value-filtered selection shift, greedy==base token-for-token (K=1 & K=4), batched R>1 + mixed prefill+decode == base per request, logprobs guard. Mutation-tested regression teeth. Unsupported (spec/async/multi-group/logprobs) fail fast.",
+    "recorded": "2026-06-05T14:16:59+00:00",
+    "result": "pass",
+    "static": true
+  },
+  "0.20.0": {
+    "behavioral": null,
+    "note": "static contracts pass; behavioral not validated (CUDA unavailable: torch/driver mismatch)",
+    "recorded": "2026-06-05T15:24:49+00:00",
+    "result": "pass",
+    "static": true
+  },
+  "0.20.1": {
+    "behavioral": null,
+    "note": "static contracts pass; behavioral not validated (CUDA unavailable: torch/driver mismatch)",
+    "recorded": "2026-06-05T15:26:21+00:00",
+    "result": "pass",
+    "static": true
+  },
+  "0.20.2": {
+    "behavioral": null,
+    "note": "static contracts pass; behavioral not validated (CUDA unavailable: torch/driver mismatch)",
+    "recorded": "2026-06-05T15:27:54+00:00",
+    "result": "pass",
+    "static": true
+  },
+  "0.21.0": {
+    "behavioral": null,
+    "note": "static contracts pass; behavioral not validated (CUDA unavailable: torch/driver mismatch)",
+    "recorded": "2026-06-05T15:29:33+00:00",
+    "result": "pass",
+    "static": true
+  },
+  "0.22.0": {
+    "behavioral": null,
+    "note": "static contracts pass; behavioral not validated (CUDA unavailable: torch/driver mismatch)",
+    "recorded": "2026-06-05T15:31:23+00:00",
+    "result": "pass",
+    "static": true
+  },
+  "0.22.1": {
+    "behavioral": null,
+    "note": "static contracts pass; behavioral not validated (CUDA unavailable: torch/driver mismatch)",
+    "recorded": "2026-06-05T15:33:03+00:00",
+    "result": "pass",
+    "static": true
+  }
+}

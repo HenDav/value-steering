@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "value-steer"
+description = "Inference-time value steering for vLLM: dynamic abstention + value-filtered decoding."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Hen Davidov", email = "hen.davidov@stats.ox.ac.uk" }]
+maintainers = [{ name = "Hen Davidov", email = "hen.davidov@stats.ox.ac.uk" }]
+keywords = [
+    "vllm",
+    "value-steering",
+    "safety",
+    "alignment",
+    "inference-time-intervention",
+    "value-filtered-decoding",
+    "abstention",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dynamic = ["version"]
+dependencies = [
+    "torch",
+    "numpy",
+]
+# vLLM is a PEER dependency (install it to match your CUDA driver + the validated span). The
+# runners need it; the pure modules (value head, steering ops, calibration, training) import
+# without it behind the package __init__, so training/calibration boxes need only the core.
+
+[project.optional-dependencies]
+# Pinned to the behaviorally-validated vLLM span. The exact-version check in value_steer.versions
+# is authoritative and warns at runtime for untested in-range versions; widen only after
+# value-steer-compat passes (see CONTRIBUTING.md). `pip install value-steer[vllm]` for the runtime.
+vllm = ["vllm>=0.19.1,<0.20"]
+train = ["transformers"]   # tokenizer + backbone for probe training (train_probe)
+dev = ["pytest", "ruff", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/oatml/value-steer"
+Repository = "https://github.com/oatml/value-steer"
+Issues = "https://github.com/oatml/value-steer/issues"
+Documentation = "https://github.com/oatml/value-steer#readme"
+
+[project.scripts]
+value-steer-compat = "value_steer.compat_check:_cli"
+
+[tool.setuptools.dynamic]
+version = { attr = "value_steer.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["value_steer*"]
+
+[tool.setuptools.package-data]
+# Shipped in the wheel: PEP 561 marker + the vLLM-compat registry read at runtime by versions.py.
+value_steer = ["py.typed", "validated_versions.json"]
+
+[tool.pytest.ini_options]
+markers = [
+    "gpu: behavioral tests that require a CUDA device and a small model (skipped otherwise)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Lint the shipped package + tests. scripts/ and examples/ are non-shipped reproducibility
+# harnesses/diagnostics that poke dynamic vLLM internals and use a terse one-liner style; they
+# are kept for provenance, not held to the library lint bar.
+extend-exclude = ["scripts", "examples", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E741", "E731"]   # line length handled by formatter; allow `l`, lambda assigns

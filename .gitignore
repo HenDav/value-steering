@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+.ruff_cache/
+
+# Checkpoints & sidecars (publish trained heads to the Hub, not git)
+*.pt
+*.pt.meta.json
+*.bin
+*.bin.meta.json
+
+# Model weights / data caches (never commit large binaries)
+models/
+trained/
+**/featcache/
+*.featcache
+*.f16
+
+# SLURM job logs + research output dirs (regenerated, cluster-specific)
+*.out
+isolate_compile*/
+safety_sweep*/
+safety_compiled*/
+safety_gen_*.jsonl
+*.gen
+
+# Local agent / editor config
+.claude/
+.idea/
+.vscode/

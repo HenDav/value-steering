@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use value-steer, please cite the software and the papers it implements."
+title: "value-steer: inference-time value steering for vLLM"
+type: software
+authors:
+  - family-names: Davidov
+    given-names: Hen
+    email: hen.davidov@stats.ox.ac.uk
+license: Apache-2.0
+repository-code: "https://github.com/oatml/value-steer"
+version: 0.1.0
+keywords:
+  - vLLM
+  - value steering
+  - inference-time intervention
+  - value-filtered decoding
+  - safety
+# The two methods this library implements. Fill in titles/year/DOI on release.
+references:
+  - type: article
+    title: "<Dynamic abstention paper — title>"
+    authors:
+      - family-names: Davidov
+        given-names: Hen
+    year: 2025
+  - type: article
+    title: "<Value-filtered decoding paper — title>"
+    authors:
+      - family-names: Davidov
+        given-names: Hen
+    year: 2025

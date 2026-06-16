@@ -1,0 +1,35 @@
+name: value-steer
+# Conda owns version control for this project. It locks the interpreter; pip (inside the
+# env) locks every Python dependency, pinned to what vLLM 0.19.1 itself requires
+# (vLLM requirements/cuda.txt: torch==2.10.0 / torchvision==0.25.0 / torchaudio==2.10.0;
+# pyproject requires-python >=3.10,<3.14).
+#
+# Create (run from the repo root, so `-e .` resolves):
+#     conda env create -f environment.yml
+#     conda activate value-steer
+#
+# THE ONE HOST-DEPENDENT KNOB: the CUDA wheel variant. The pins below pull PyPI's
+# default-CUDA torch/vLLM wheels, which suit most recent NVIDIA drivers. If your box
+# needs a specific CUDA build, install torch from the matching index FIRST, e.g.
+#     pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
+#         --index-url https://download.pytorch.org/whl/cu129
+# then `conda env create` (pip will see them satisfied). The host NVIDIA driver must
+# support the wheel's CUDA version; conda can't pin the driver.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12          # within vLLM 0.19.1's >=3.10,<3.14
+  - pip
+  - pip:
+      # CUDA stack — exactly vLLM 0.19.1's pinned versions
+      - torch==2.10.0
+      - torchvision==0.25.0
+      - torchaudio==2.10.0
+      - vllm==0.19.1
+      # the package + dev/train extras (pytest, transformers); editable from repo root
+      - "-e .[dev,train]"
+
+# CPU-only dev box (just the 56-test suite, no vLLM): skip this file and instead
+#   pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+#   pip install -e ".[dev,train]"
+# The pure modules and CPU tests import without vLLM by design.

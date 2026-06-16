@@ -1,0 +1,24 @@
+name: vLLM version compatibility
+description: A new vLLM version doesn't work / should be validated
+labels: ["compat"]
+body:
+  - type: input
+    id: vllm
+    attributes:
+      label: vLLM version
+      description: The version you want validated / that broke.
+    validations:
+      required: true
+  - type: textarea
+    id: compat
+    attributes:
+      label: value-steer-compat output
+      description: Run `value-steer-compat` (static) and, on a CUDA box, the behavioral pass. Paste both.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Which internal moved?
+      description: If static checks failed, which bound vLLM API changed?
