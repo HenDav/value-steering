@@ -47,13 +47,13 @@ dependencies = [
 # value-steer-compat passes (see CONTRIBUTING.md). `pip install value-steer[vllm]` for the runtime.
 vllm = ["vllm>=0.19.1,<0.20"]
 train = ["transformers"]   # tokenizer + backbone for probe training (train_probe)
-dev = ["pytest", "ruff", "build", "twine"]
+dev = ["pytest", "pygments", "ruff", "build", "twine"]   # pygments: pytest's traceback highlighter (not auto-pulled; required once user-site is off)
 
 [project.urls]
-Homepage = "https://github.com/oatml/value-steer"
-Repository = "https://github.com/oatml/value-steer"
-Issues = "https://github.com/oatml/value-steer/issues"
-Documentation = "https://github.com/oatml/value-steer#readme"
+Homepage = "https://github.com/HenDav/value-steering"
+Repository = "https://github.com/HenDav/value-steering"
+Issues = "https://github.com/HenDav/value-steering/issues"
+Documentation = "https://github.com/HenDav/value-steering#readme"
 
 [project.scripts]
 value-steer-compat = "value_steer.compat_check:_cli"

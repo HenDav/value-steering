@@ -1,6 +1,6 @@
 # value-steer
 
-[![CI](https://github.com/oatml/value-steer/actions/workflows/ci.yml/badge.svg)](https://github.com/oatml/value-steer/actions/workflows/ci.yml)
+[![CI](https://github.com/HenDav/value-steering/actions/workflows/ci.yml/badge.svg)](https://github.com/HenDav/value-steering/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/value-steer.svg)](https://pypi.org/project/value-steer/)
 [![Python](https://img.shields.io/pypi/pyversions/value-steer.svg)](https://pypi.org/project/value-steer/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)

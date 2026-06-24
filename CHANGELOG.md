@@ -48,5 +48,5 @@ Initial public release.
 - The VFD CUDA-graph/compile path is **single-stream only**; eager (`enforce_eager=True`) is the
   correct serving default for all batch sizes.
 
-[Unreleased]: https://github.com/oatml/value-steer/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/oatml/value-steer/releases/tag/v0.1.0
+[Unreleased]: https://github.com/HenDav/value-steering/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/HenDav/value-steering/releases/tag/v0.1.0
