@@ -21,6 +21,9 @@ trained/
 *.featcache
 *.f16
 
+# Datasets / prompt files (derived from external corpora; not redistributed here)
+data/
+
 # SLURM job logs + research output dirs (regenerated, cluster-specific)
 *.out
 isolate_compile*/

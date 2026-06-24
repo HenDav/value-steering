@@ -8,10 +8,11 @@
 Inference-time value steering for [vLLM](https://github.com/vllm-project/vllm): two
 decode-time interventions driven by a shared scalar value head.
 
-- **Dynamic abstention** (Paper 1) — gate generation to EOS when the value crosses a
-  calibrated threshold.
-- **Value-filtered decoding** (Paper 2) — at each step, sample K candidates and
-  commit one by a safety value, keeping the natural sample when it is already safe.
+- **Dynamic abstention** ([Knowing When to Quit](https://arxiv.org/abs/2604.18419), ICML 2026) —
+  gate generation to EOS when the value crosses a calibrated threshold.
+- **Value-filtered decoding** ([Selective Safety Steering via Value-Filtered Decoding](https://arxiv.org/abs/2605.14746)) —
+  at each step, sample K candidates and commit one by a safety value, keeping the natural sample
+  when it is already safe.
 
 Both score the *same* feature (the backbone's final post-norm hidden state, the tensor
 `lm_head` consumes) with the *same* head, so one trained probe serves either mode.

@@ -6,6 +6,7 @@ authors:
   - family-names: Davidov
     given-names: Hen
     email: hen.davidov@stats.ox.ac.uk
+    affiliation: "University of Oxford"
 license: Apache-2.0
 repository-code: "https://github.com/oatml/value-steer"
 version: 0.1.0
@@ -15,17 +16,69 @@ keywords:
   - inference-time intervention
   - value-filtered decoding
   - safety
-# The two methods this library implements. Fill in titles/year/DOI on release.
+# The two methods this library implements.
 references:
-  - type: article
-    title: "<Dynamic abstention paper — title>"
+  - type: conference-paper
+    title: "Knowing When to Quit: A Principled Framework for Dynamic Abstention in LLM Reasoning"
     authors:
       - family-names: Davidov
         given-names: Hen
-    year: 2025
+        affiliation: "University of Oxford"
+      - family-names: Cohen
+        given-names: Nachshon
+        affiliation: "Amazon"
+      - family-names: Kalinsky
+        given-names: Oren
+        affiliation: "Amazon"
+      - family-names: Fairstein
+        given-names: Yaron
+        affiliation: "Amazon"
+      - family-names: Kushilevitz
+        given-names: Guy
+        affiliation: "Amazon"
+      - family-names: Yazdi
+        given-names: Ram
+        affiliation: "Amazon"
+      - family-names: Rebeschini
+        given-names: Patrick
+        affiliation: "Amazon and University of Oxford"
+    collection-title: "Proceedings of the 43rd International Conference on Machine Learning (ICML)"
+    conference:
+      name: "International Conference on Machine Learning (ICML 2026)"
+      city: "Seoul"
+      country: "KR"
+    year: 2026
+    publisher:
+      name: "PMLR"
+    url: "https://arxiv.org/abs/2604.18419"
+    doi: "10.48550/arXiv.2604.18419"
+    identifiers:
+      - type: other
+        value: "arXiv:2604.18419"
+        description: "arXiv preprint"
   - type: article
-    title: "<Value-filtered decoding paper — title>"
+    title: "Selective Safety Steering via Value-Filtered Decoding"
     authors:
+      - family-names: Einbinder
+        given-names: Bat-Sheva
+        affiliation: "Technion – Israel Institute of Technology"
       - family-names: Davidov
         given-names: Hen
-    year: 2025
+        affiliation: "University of Oxford"
+      - family-names: Teh
+        given-names: Yee Whye
+        affiliation: "University of Oxford"
+      - family-names: Gal
+        given-names: Yarin
+        affiliation: "University of Oxford"
+      - family-names: Romano
+        given-names: Yaniv
+        affiliation: "Technion – Israel Institute of Technology"
+    year: 2026
+    url: "https://arxiv.org/abs/2605.14746"
+    doi: "10.48550/arXiv.2605.14746"
+    identifiers:
+      - type: other
+        value: "arXiv:2605.14746"
+        description: "arXiv preprint"
+    notes: "Equal contribution by Einbinder and Davidov. Under review at NeurIPS 2026."
