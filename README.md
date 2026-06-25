@@ -34,7 +34,7 @@ need only the core install.
 
 A pre-trained safety value head (Mistral-7B-Instruct-v0.3 backbone, hh-rlhf labels via a
 Llama-3.1 judge) is published at
-[`oatml/value-steer-safety-head`](https://huggingface.co/oatml/value-steer-safety-head) —
+[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head) —
 see its model card for the feature contract and a ready-to-use config snippet.
 
 ## Use

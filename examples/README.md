@@ -26,7 +26,7 @@ Each script reads these (with sensible fallbacks where safe); set the ones a giv
 | `VS_SCRATCH` | node-local scratch (envs, caches, HF) | `/tmp/$USER` |
 
 A ready-made value head is published at
-[`oatml/value-steer-safety-head`](https://huggingface.co/oatml/value-steer-safety-head) — point
+[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head) — point
 `VALUE_STEER_VHEAD` at a local download of it.
 
 The eval/profiling/diagnostic harnesses read a few more knobs (all optional, with defaults):
