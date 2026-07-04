@@ -54,8 +54,13 @@ def do_gen(args):
               enforce_eager=True, async_scheduling=False, gpu_memory_utilization=args.util,
               max_num_seqs=args.max_num_seqs, max_model_len=2048)
     runner = _runner(llm)
-    sp = SamplingParams(temperature=args.temperature, top_p=args.top_p,
-                        max_tokens=args.max_tokens, seed=args.seed)
+
+    # samples_per_prompt > 1: emit S responses per prompt (data augmentation -- diverse
+    # continuations + labels). Each replica gets a DISTINCT seed so temperature sampling
+    # actually diverges (same seed would reproduce the same tokens); the token-keyed pairing
+    # below tolerates the rare collision (two identical samples share features, both kept).
+    S = max(1, args.samples_per_prompt)
+    exp = [r for r in recs for _ in range(S)]                     # each prompt repeated S times
 
     os.makedirs(args.cache_dir, exist_ok=True)
     H, total, idx, skipped = None, 0, 0, 0
@@ -65,10 +70,13 @@ def do_gen(args):
     # Batched chat for speed; pair each output to its captured hidden by the committed-token
     # sequence (== the output tokens under never-intervene), which is robust to req-id/order
     # mismatches in the per-request dump dict.
-    for i in range(0, len(recs), args.gen_chunk):
-        grp = recs[i:i + args.gen_chunk]
+    for i in range(0, len(exp), args.gen_chunk):
+        grp = exp[i:i + args.gen_chunk]
+        sps = [SamplingParams(temperature=args.temperature, top_p=args.top_p,
+                              max_tokens=args.max_tokens, seed=args.seed + i + j)  # distinct per request
+               for j in range(len(grp))]
         runner._dump_hidden.clear()
-        outs = llm.chat([[{"role": "user", "content": r["prompt"]}] for r in grp], sp)
+        outs = llm.chat([[{"role": "user", "content": r["prompt"]}] for r in grp], sps)
         by_toks = {}
         for dump in runner._dump_hidden.values():
             by_toks.setdefault(tuple(d[0] for d in dump), dump)   # key: committed-token seq
@@ -147,6 +155,8 @@ def main():
     ap.add_argument("--head", default="", help="any value head (feature is head-independent)")
     ap.add_argument("--source", default="")
     ap.add_argument("--n", type=int, default=None)
+    ap.add_argument("--samples-per-prompt", type=int, default=1,
+                    help="generate (and label) this many continuations per prompt; each gets a distinct seed")
     ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top-p", type=float, default=0.9)

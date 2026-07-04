@@ -79,8 +79,7 @@ def load_value_head(path: str, hidden_size: int, device) -> ValueHead:
     `path` must hold the state dict of the `value_head` SUBMODULE (Sequential keys
     "0.weight", "0.bias", "2.weight", ...) -- i.e. torch.save(model.value_head.
     state_dict()), not the whole DenseValueModel. load_state_dict is strict, so an
-    architecture mismatch raises here rather than silently mis-scoring.
-    """
+    architecture mismatch raises here rather than silently mis-scoring."""
     head = ValueHead(hidden_size).to(device)
     head.net.load_state_dict(torch.load(path, map_location=device))
     head.eval()

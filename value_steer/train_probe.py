@@ -358,6 +358,9 @@ def save_probe_checkpoint(
     """Write the bare head state dict to `path` (loadable by value_probe.load_value_head)
     and a `path + '.meta.json'` sidecar with the feature spec, calibrated threshold, and
     training metadata. Returns (weights_path, sidecar_path)."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)   # create trained/<run>/ if absent (don't crash post-train)
     torch.save(head.net.state_dict(), path)
     sidecar = path + ".meta.json"
     with open(sidecar, "w", encoding="utf-8") as f:

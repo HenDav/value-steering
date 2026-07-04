@@ -196,6 +196,7 @@ def test_backbone_stays_frozen():
     assert all(not p.requires_grad for p in backbone.parameters())
 
 
+
 # --------------------------------------------------------------------------- #
 # checkpoint roundtrip                                                        #
 # --------------------------------------------------------------------------- #

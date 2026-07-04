@@ -66,6 +66,50 @@ requires_gpu_model = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _release_vllm_engines():
+    """Free EVERY in-process vLLM engine a test creates, so engines don't ACCUMULATE across the
+    session and OOM later tests at init ("Free memory ... less than desired GPU memory utilization").
+    The V1 EngineCore holds its model + KV reservation on the GPU until shutdown(); relying on
+    scope-exit GC is unreliable (the object is often already dropped by teardown, leaving the GPU
+    reservation live). So we patch vllm.LLM.__init__ ONCE to register each constructed engine with
+    a strong ref, then run the proven _free_engine sequence (shutdown -> gc -> empty_cache) on all
+    of them in teardown. No-op / no vLLM import off-GPU (gpu tests are deselected there)."""
+    if not _have_gpu():
+        yield
+        return
+    import vllm
+    if not getattr(vllm.LLM, "_vs_tracked", False):
+        _orig_init = vllm.LLM.__init__
+
+        def _tracking_init(self, *a, **k):
+            _orig_init(self, *a, **k)
+            for reg in vllm.LLM._vs_regs:        # append to every active test's registry
+                reg.append(self)
+
+        vllm.LLM.__init__ = _tracking_init
+        vllm.LLM._vs_tracked = True
+        vllm.LLM._vs_regs = []
+
+    reg: list = []
+    vllm.LLM._vs_regs.append(reg)
+    try:
+        yield
+    finally:
+        import gc
+
+        import torch
+        vllm.LLM._vs_regs.remove(reg)
+        for llm in reg:
+            try:
+                llm.llm_engine.engine_core.shutdown()
+            except Exception:
+                pass
+        reg.clear()                  # drop strong refs FIRST, so the objects can be deallocated...
+        gc.collect()                 # ...then collect (dealloc the model/KV tensors)...
+        torch.cuda.empty_cache()     # ...then return the freed blocks to the driver (order matters)
+
+
 def _force_const_head(runner, p_value: float):
     """Replace the runner's value head with a constant p, so the decision is
     deterministic regardless of the (random) head weights."""
@@ -629,3 +673,4 @@ def test_vfd_hidden_matches_real_prefix_long_context():
     worst_rel = max(rel for _, _, rel in stats)
     print(f"[hidden-closeness] steps={len(stats)} min_cos={worst:.6f} max_rel_L2={worst_rel:.4e}")
     assert worst > 0.999, f"scratch-path hidden diverges from real-block decode (min cos {worst})"
+

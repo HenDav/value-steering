@@ -18,6 +18,11 @@ nvidia-smi --query-gpu=index,name,memory.total,memory.free --format=csv
 
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh
 
+# Keep pip's wheel extraction off the tiny (~8 GB) /tmp -> node-local scratch (CLAUDE.md gotcha).
+export TMPDIR=${TMPDIR:-${VS_SCRATCH:-/tmp/$USER}/tmp}
+export PIP_CACHE_DIR=${PIP_CACHE_DIR:-${VS_SCRATCH:-/tmp/$USER}/.cache/pip}
+mkdir -p "$TMPDIR" "$PIP_CACHE_DIR"
+
 # One reusable env per node (hostname-keyed). Build only if missing.
 ENVDIR=${VS_SCRATCH:-/tmp/$USER}/envs/vsteer-$(hostname -s)
 if [ ! -d "$ENVDIR" ]; then
