@@ -14,7 +14,7 @@
 # If A and B match within sampling noise (~few/64) -> claim holds (earlier sweep gap was the
 # eager-batched-R64 vs compiled-R1 confound). If they diverge systematically -> real compile bug.
 # Also dumps a PAIRED per-prompt token-divergence report (identical seqs / first-diff step).
-# Llama-judge afterward: isolate_compile_judge.sbatch.  Submit: sbatch --partition=llm isolate_compile.sbatch
+# Llama-judge afterward: isolate_compile_judge.sbatch.  Submit: sbatch --partition=llm examples/research/isolate_compile.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

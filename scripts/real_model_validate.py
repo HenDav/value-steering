@@ -21,8 +21,12 @@ os.environ.setdefault("VLLM_HOST_IP", "127.0.0.1")
 import sys
 import torch
 
-MODEL = os.environ["VALUE_STEER_MODEL"]
-VHEAD = os.environ["VALUE_STEER_VHEAD"]
+MODEL = os.environ.get("VALUE_STEER_MODEL")
+if not MODEL:
+    raise SystemExit("set VALUE_STEER_MODEL to the backbone model (HF id or local path)")
+VHEAD = os.environ.get("VALUE_STEER_VHEAD")
+if not VHEAD:
+    raise SystemExit("set VALUE_STEER_VHEAD to a trained value head (value_head.bin)")
 UTIL = float(os.environ.get("VALUE_STEER_UTIL", "0.45"))
 
 

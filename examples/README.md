@@ -40,6 +40,12 @@ The eval/profiling/diagnostic harnesses read a few more knobs (all optional, wit
 | `VFD_K` / `VFD_THRESHOLD` | candidates per step / intervention threshold | `8` / `0.5` |
 | `ENFORCE_EAGER` | `1` = eager (serving default); `0` = compile | `1` |
 | `SINGLE_STREAM` | opt into the compiled single-stream path (one request at a time) | `0` |
+| `DOMAIN` | training domain (verifier + data) for the value-head pipeline | `safety` |
+| `SPP` | samples per prompt when generating training data | `1` |
+| `SAFETY_OUTDIR` | where safety-eval writes generations/scores | `.` |
+| `DEC_N` | prompts to generate for the decode pipeline | pipeline default |
+| `N_PROMPTS` / `HH_SUBSET` | prompt cap / hh-rlhf subset for `train_canonical` | all / `harmless-base` |
+| `VSTEER_TORCH_INDEX` | torch wheel index for the version sweep (e.g. `.../cu128` on a 12.x driver) | unset |
 
 ## Submitting
 

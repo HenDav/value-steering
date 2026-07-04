@@ -9,7 +9,7 @@
 # N=256 prompts (vs 64) -> the Llama-judge gap goes from ~1.8sigma to conclusive, and the
 # argmin-fallback rate is measured over ~32k steps. Does compile SYSTEMATICALLY change safety, or
 # was the n=64 judge gap noise? Gen + Ray2333 + paired token-divergence + Llama judge, all in the
-# vsteer env (judge = transformers).  Submit: sbatch --partition=llm isolate_compile_bigN.sbatch
+# vsteer env (judge = transformers).  Submit: sbatch --partition=llm examples/research/isolate_compile_bigN.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

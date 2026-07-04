@@ -227,8 +227,12 @@ def do_judge(tags):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: safety_eval.py {gen <tag> | score <tags...> | judge <tags...>}")
     mode = sys.argv[1]
     if mode == "gen":
+        if len(sys.argv) < 3:
+            raise SystemExit("usage: safety_eval.py gen <tag>   (e.g. base, vfd_t30)")
         do_gen(sys.argv[2])
     elif mode == "score":
         do_score(sys.argv[2:])

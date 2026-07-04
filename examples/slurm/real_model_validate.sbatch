@@ -7,8 +7,8 @@
 #SBATCH --output=real_model_validate.%j.out
 # Validate the plugin with the REAL VFD artifacts: trained scalar safety head on
 # mistralai/Mistral-7B-Instruct-v0.3, under the behaviorally-validated vLLM 0.19.1.
-# Mistral is loaded from a LOCAL NFS path (no HF download/token). Submit:
-#   sbatch --partition=llm,normal,msc real_model_validate.sbatch
+# Submit:
+#   sbatch --partition=llm,normal,msc examples/slurm/real_model_validate.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 nvidia-smi --query-gpu=name,memory.free --format=csv,noheader

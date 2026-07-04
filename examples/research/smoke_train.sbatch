@@ -6,7 +6,7 @@
 #SBATCH --mem=48G
 #SBATCH --output=smoke_train.%j.out
 # Cheap GPU gate for the value-head training pipeline: the train->save->load->separate->calibrate
-# smoke test on a tiny model, plus the pure verifier tests. Submit: sbatch --partition=llm smoke_train.sbatch
+# smoke test on a tiny model, plus the pure verifier tests. Submit: sbatch --partition=llm examples/research/smoke_train.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

@@ -9,7 +9,7 @@
 # DEFAULT (cu130) wheels -- the a100 nodes are CUDA 12.5 and can't load vllm>=0.20's
 # CUDA-13 _C extension. The sweep self-guards on torch.cuda.is_available(): if this node is
 # ALSO older than CUDA 13, it records behavioral=None (infra) and exits fast.
-# Submit:  sbatch --partition=h100,h200 behavioral_sweep_h100.sbatch
+# Submit:  sbatch --partition=h100,h200 examples/research/behavioral_sweep_h100.sbatch
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 nvidia-smi | grep -iE "Driver Version|CUDA Version" || true
 cd ${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}

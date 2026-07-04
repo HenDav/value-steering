@@ -9,7 +9,7 @@
 # (no regeneration -- the data is Mistral outputs + Llama-judge scores). extract -> train ->
 # calibrate, as TWO separate processes (the pooling model frees before the head trains; never
 # co-resident). The ~255 GB float16 feature cache lives node-local on ${VS_SCRATCH:-/tmp/$USER}
-# (needs a node with ample local scratch). Submit: sbatch -p <partition> --gres=gpu:1 full_retrain.sbatch
+# (needs a node with ample local scratch). Submit: sbatch -p <partition> --gres=gpu:1 examples/slurm/full_retrain.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

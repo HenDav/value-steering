@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=160G
 #SBATCH --output=train_canonical.%j.out
-# CANONICAL scalar value head: decode-matched, on ALL prompts, with SAMPLES_PER_PROMPT continuations
+# CANONICAL scalar value head: decode-matched, on ALL prompts, with SPP continuations
 # generated + judge-labeled each (data augmentation). Clean scalar pipeline (decode_extract +
 # train_value_head), vLLM judge, conformal calibration. Writes trained/canonical/.
 set -e
@@ -42,7 +42,7 @@ JUDGE=${JUDGE_MODEL:-NousResearch/Meta-Llama-3.1-8B-Instruct}
 CACHE=${VS_SCRATCH:-/tmp/$USER}/canonical.cache
 PROMPTS=$ROOT/data/hh_train_full.jsonl
 N=${N_PROMPTS:-1000000}            # "all": prep caps at the deduped split size
-S=${SAMPLES_PER_PROMPT:-4}         # continuations generated + tagged per prompt
+S=${SPP:-4}                        # continuations generated + tagged per prompt
 OUT=$ROOT/trained/canonical/value_head.bin
 
 echo "=== prep ${HH_SUBSET:-harmless-base} prompts (cap $N) ==="
@@ -94,7 +94,7 @@ tags: [value-head, safety, vfd, value-steering]
 # Canonical safety value head (decode-matched)
 
 A scalar value head for **Value-Filtered Decoding (VFD)** / dynamic abstention with
-[value-steer](https://github.com/) on `{model}`. Predicts per-token P(undesirable) from the
+[value-steer](https://github.com/HenDav/value-steering) on `{model}`. Predicts per-token P(undesirable) from the
 backbone's final-layer **post-norm** hidden state (the exact tensor `lm_head` consumes), fp32.
 
 ## Training
@@ -111,11 +111,12 @@ backbone's final-layer **post-norm** hidden state (the exact tensor `lm_head` co
 ## Use (vLLM plugin)
 ```bash
 vllm serve {model} --worker-cls value_steer.worker.ValueSteerWorker \\
-  --additional-config '{{"vfd": {{"enabled": true, "value_head_path": "value_head.bin", "threshold": {round(thr,4) if thr else 0.5}}}}}'
+  --additional-config '{{"vfd": {{"enabled": true, "value_head_path": "value_head.bin", "threshold": 0.3}}}}'
 ```
+Steer at **threshold 0.3**; the calibrated conformal threshold above is conservative and barely intervenes.
 ```python
 from value_steer.value_probe import load_value_head
-head = load_value_head("value_head.bin", hidden_size=4096, device="cuda")  # p_unsafe = head.p(hidden)
+head = load_value_head("value_head.bin", hidden_size=4096)  # device defaults to cuda; p_unsafe = head.p(hidden)
 ```
 """
 open(os.path.join(d, "README.md"), "w").write(card)

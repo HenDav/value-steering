@@ -7,7 +7,7 @@
 #SBATCH --output=safety_eval.%j.out
 # Does VFD make outputs SAFER on harmful HH prompts? base vs VFD(real head) continuations,
 # scored by the INDEPENDENT Ray2333 harmless/helpful reward models (the paper's metric).
-# Submit: sbatch --partition=llm,normal,msc safety_eval.sbatch
+# Submit: sbatch --partition=llm,normal,msc examples/slurm/safety_eval.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

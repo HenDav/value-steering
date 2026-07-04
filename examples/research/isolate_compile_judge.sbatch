@@ -7,7 +7,7 @@
 #SBATCH --output=isolate_compile_judge.%j.out
 # Llama-judge the isolation arms (eager-R1 vs compiled-R1, K=16). If unsafe rates match within
 # a few/64 -> "compile is noise" holds. Submit AFTER isolate_compile.sbatch finishes.
-# Submit: sbatch --partition=llm,normal,msc isolate_compile_judge.sbatch
+# Submit: sbatch --partition=llm,normal,msc examples/research/isolate_compile_judge.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

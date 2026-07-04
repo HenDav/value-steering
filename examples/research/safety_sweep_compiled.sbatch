@@ -9,7 +9,7 @@
 # capture ceiling; safety effect is identical to compiled, already proven). thr 0.3, 64 prompts.
 # Reports argmin-fallback rate (does higher K reduce off-distribution forcing?) + Ray2333
 # harmless/helpful per K. Llama-judge unsafe rate = safety_sweep_judge.sbatch afterward.
-# Submit: sbatch --partition=llm safety_sweep.sbatch
+# Submit: sbatch --partition=llm examples/research/safety_sweep_compiled.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

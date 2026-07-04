@@ -15,9 +15,14 @@ the only one of the two whose training code is verified:
   * probability = sigmoid(logit).
 
 The head is LABEL-AGNOSTIC at inference: the runtime sees only a calibrated probe.
-What the probability means -- P(should quit) for abstention vs P(unsafe) for VFD --
-lives entirely in the training labels and in the caller's threshold logic, not here.
-So both papers share this module; only their callers differ.
+What the probability means lives entirely in the training labels and the caller's
+threshold logic, not here -- and the two modes use OPPOSITE polarity:
+  * VFD scores P(undesirable) and commits the LOWEST-scoring candidate;
+  * abstention (its runner defaults to `abstain when V < c`, matching the paper's
+    "abstain when the value is below threshold") scores P(continue/good), i.e. abstain
+    when the value is LOW. If your abstention probe instead scores P(should-stop),
+    set the runner's direction to `V > c` (see abstention_model_runner's direction note).
+So both papers share this module; only their callers (and label sign) differ.
 
 NOTE: the abstention checkpoint must be trained with (or re-loaded into) THIS head;
 its training code was not available to verify, so unifying the code assumes a
@@ -73,16 +78,29 @@ class ValueHead(nn.Module):
         return torch.sigmoid(self.logit(h))
 
 
-def load_value_head(path: str, hidden_size: int, device) -> ValueHead:
+def load_value_head(path: str, hidden_size: int, device=None) -> ValueHead:
     """Build the shared head and load a checkpoint into it.
+
+    `device` defaults to CUDA when available, else CPU (with a warning). The returned
+    head is frozen (requires_grad=False) and in eval mode -- it is for scoring, not
+    training -- so `.p()`/`.logit()` outside a no_grad block don't emit spurious
+    autograd warnings.
 
     `path` must hold the state dict of the `value_head` SUBMODULE (Sequential keys
     "0.weight", "0.bias", "2.weight", ...) -- i.e. torch.save(model.value_head.
     state_dict()), not the whole DenseValueModel. load_state_dict is strict, so an
     architecture mismatch raises here rather than silently mis-scoring."""
+    if device is None:
+        if torch.cuda.is_available():
+            device = "cuda"
+        else:
+            import warnings
+            warnings.warn("CUDA unavailable -- loading the value head on CPU")
+            device = "cpu"
     head = ValueHead(hidden_size).to(device)
     head.net.load_state_dict(torch.load(path, map_location=device))
     head.eval()
+    head.requires_grad_(False)
     return head
 
 

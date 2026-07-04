@@ -8,7 +8,7 @@
 # One-command value-head pipeline: generate responses -> verify-label -> train -> calibrate ->
 # write checkpoint+sidecar. Domain-pluggable via DOMAIN (default safety). The head predicts
 # P(undesirable); VFD then commits the lowest-scoring candidate (unchanged across domains).
-#   Submit: sbatch --partition=llm train_value_head.sbatch
+#   Submit: sbatch --partition=llm examples/slurm/train_value_head.sbatch
 #   Override: DOMAIN=safety SAFETY_N=512 SPP=2 sbatch --partition=llm train_value_head.sbatch
 # (math/code verifiers are stubs in this pass -- safety is the working end-to-end domain.)
 set -e

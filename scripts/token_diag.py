@@ -13,7 +13,9 @@ import os
 os.environ.setdefault("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
 os.environ.setdefault("VLLM_HOST_IP", "127.0.0.1")
 
-MODEL = os.environ["VALUE_STEER_MODEL"]
+MODEL = os.environ.get("VALUE_STEER_MODEL")
+if not MODEL:
+    raise SystemExit("set VALUE_STEER_MODEL to the backbone model (HF id or local path)")
 VHEAD = os.environ.get("VALUE_STEER_VHEAD", "")
 UTIL = float(os.environ.get("VALUE_STEER_UTIL", "0.45"))
 K = int(os.environ.get("VFD_K", "8"))

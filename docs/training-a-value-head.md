@@ -87,3 +87,24 @@ Domain-pluggable; a new domain is two additions:
 
 Then run the decode pipeline for that domain. The loss, decode-feature extraction, training,
 calibration, and VFD selection are all domain-agnostic.
+
+## Relation to the papers
+
+This library implements the two methods faithfully but with a few deliberate, documented
+simplifications — worth knowing if you cross-reference the papers:
+
+- **Value polarity differs by mode.** VFD scores **P(undesirable)** and commits the lowest-scoring
+  candidate. Dynamic abstention gates when the value is **below** the threshold, so its head scores
+  **P(desirable / continue)** — the sign of VFD's. (In *Selective Safety Steering via Value-Filtered
+  Decoding* the value is P(safe) and the filter is `V ≥ c`; here it is the equivalent
+  `P(unsafe) < c`. In *Knowing When to Quit* the value is P(correct) and the rule is abstain-if-below,
+  which the abstention runner's default `V < c` matches.)
+- **VFD uses first-safe selection, not the paper's two-phase rollback.** The optimistic
+  "sample one, keep if acceptable, else roll back the KV cache" path is dropped; committing the
+  **first** candidate under threshold (else the lowest) recovers the same selective behavior with a
+  single forward and no rollback. See `value_steer/vfd_model_runner.py`.
+- **Calibration.** `value_steer.calibration` provides the value-filtered-decoding / safety-line
+  conformal bound (`P_H0(max_t p_t ≥ c) ≤ tau`). The dynamic-abstention paper calibrates its
+  threshold empirically (quantile + isotonic) and carries no such conformal guarantee.
+- **Abstention implements the β = 0 special case** (force EOS), not the paper's full regularized-RL /
+  abstention-token formulation.

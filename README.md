@@ -45,14 +45,14 @@ Abstention:
 ```bash
 vllm serve <model> \
   --worker-cls value_steer.worker.ValueSteerWorker \
-  --additional-config '{"abstain": {"value_head_path": "vhead.pt", "threshold": 0.5}}'
+  --additional-config '{"abstain": {"value_head_path": "value_head.bin", "threshold": 0.5}}'
 ```
 
 Value-filtered decoding (run with speculative decoding OFF — VFD owns the decode forward):
 ```bash
 vllm serve <model> \
   --worker-cls value_steer.worker.ValueSteerWorker \
-  --additional-config '{"vfd": {"value_head_path": "vhead.pt", "threshold": 0.3, "num_candidates": 8}}'
+  --additional-config '{"vfd": {"value_head_path": "value_head.bin", "threshold": 0.3, "num_candidates": 8}}'
 ```
 
 Per-request override via `SamplingParams.extra_args` (`abstain_threshold` / `vfd_threshold`).
@@ -65,11 +65,11 @@ from value_steer.value_probe import ValueHead
 
 head = ValueHead(hidden_size)            # shared head; fp32 on the post-norm feature
 train_probe(backbone, head, train_loader, loss_name="focal", use_td=True, coh_weight=0.1)
-save_probe_checkpoint("vhead.pt", head, threshold=calibrated_c, meta={"loss": "focal"})
+save_probe_checkpoint("value_head.bin", head, threshold=calibrated_c, meta={"loss": "focal"})
 ```
 
-`save_probe_checkpoint` writes the bare head weights to `vhead.pt` (loaded by the
-runners) plus a `vhead.pt.meta.json` sidecar with the feature spec, calibrated
+`save_probe_checkpoint` writes the bare head weights to `value_head.bin` (loaded by the
+runners) plus a `value_head.bin.meta.json` sidecar with the feature spec, calibrated
 threshold, and metadata. The objective is label-agnostic — your labels define whether
 the value means P(unsafe) or P(should-quit).
 
@@ -104,7 +104,8 @@ behavioral only if static is green.
 ## Tests
 
 ```bash
-pytest -q          # pure-logic suite (no GPU, no vLLM): ops, calibration, training, allocator
+pip install -e ".[dev]"     # pytest lives in the dev extra
+pytest -q                   # pure-logic suite (no GPU, no vLLM): ops, calibration, training, allocator
 ```
 
 ## Status

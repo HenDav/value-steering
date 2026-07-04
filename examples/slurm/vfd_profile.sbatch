@@ -7,7 +7,7 @@
 #SBATCH --output=vfd_profile.%j.out
 # Per-phase profile of VFD's steady decode step (copy/forward/score/commit/seed) under
 # cudagraphs, to TARGET further optimization. Runs opt-125m (orchestration upper bound) then
-# Mistral-7B (real target). Submit: sbatch --partition=llm,normal,msc vfd_profile.sbatch
+# Mistral-7B (real target). Submit: sbatch --partition=llm,normal,msc examples/slurm/vfd_profile.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 nvidia-smi --query-gpu=name,memory.free --format=csv,noheader

@@ -22,7 +22,13 @@ that is cheap because the model is not loaded until the separate load_model() ca
 
 from __future__ import annotations
 
-from vllm.v1.worker.gpu_worker import Worker
+try:
+    from vllm.v1.worker.gpu_worker import Worker
+except ModuleNotFoundError as e:  # vLLM is an optional extra; the runner path needs it
+    raise ModuleNotFoundError(
+        "value_steer.worker requires vLLM. Install the runtime with: "
+        'pip install "value-steer[vllm]"'
+    ) from e
 
 
 def _wants(cfg: dict, key: str) -> bool:

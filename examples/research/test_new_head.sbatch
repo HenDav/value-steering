@@ -7,7 +7,7 @@
 #SBATCH --output=test_new_head.%j.out
 # Test the freshly-trained value head: base vs VFD(new head) on the held-out harmful-HH test set,
 # at the CALIBRATED threshold (from the sidecar) and a fixed 0.3, judged by Llama-3.1-8B.
-# Run after train_value_head.sbatch (chained via --dependency). Submit: sbatch --partition=llm,normal,msc test_new_head.sbatch
+# Run after train_value_head.sbatch (chained via --dependency). Submit: sbatch --partition=llm,normal,msc examples/research/test_new_head.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

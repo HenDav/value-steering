@@ -12,7 +12,7 @@ import vLLM and live in their own modules; import them explicitly where needed:
     from value_steer.worker import ValueSteerWorker
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from . import calibration, steering_ops, verifiers
 from .value_probe import DEFAULT_SPEC, FeatureSpec, ValueHead, load_value_head, request_threshold

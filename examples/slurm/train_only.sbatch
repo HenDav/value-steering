@@ -7,7 +7,7 @@
 #SBATCH --output=train_only.%j.out
 # Train-only (reuses the existing node-local feature cache from a prior full run -- NO
 # re-extraction). Faster data loading (--num-workers) + per-epoch loss curve. MUST run on the SAME
-# node that holds the cache. Submit: sbatch -p <partition> --gres=gpu:1 -w <that-node> train_only.sbatch
+# node that holds the cache. Submit: sbatch -p <partition> --gres=gpu:1 -w <that-node> examples/slurm/train_only.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

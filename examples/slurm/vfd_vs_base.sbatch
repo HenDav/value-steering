@@ -8,7 +8,7 @@
 # Attribute the VFD-vs-base gap: wall tok/s for base vs VFD(K=1) vs VFD(K=4), PLUS the per-phase
 # breakdown (VFD_PROFILE) for the VFD runs. K=1 forward is base-shaped (1 row), so VFD(K=1)-base
 # = pure orchestration overhead, and K4-K1 = the K-scaling cost. cudagraphs ON for all (the
-# realistic regime). Submit: sbatch --partition=llm,normal,msc vfd_vs_base.sbatch
+# realistic regime). Submit: sbatch --partition=llm,normal,msc examples/slurm/vfd_vs_base.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

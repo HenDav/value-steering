@@ -7,7 +7,7 @@
 #SBATCH --output=profile_K.%j.out
 # WHERE does the K=8->K=40 slowdown come from? Per-phase CUDA-event timing (VFD_PROFILE=1):
 # meta/copy/forward/score/commit/seed ms per step, at K=8 vs K=40 compiled single-stream.
-# Submit: sbatch --partition=llm profile_K.sbatch
+# Submit: sbatch --partition=llm examples/research/profile_K.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

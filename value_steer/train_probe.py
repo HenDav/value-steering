@@ -303,7 +303,7 @@ def train_probe(
             opt.step()
             if sched is not None:
                 sched.step()
-            run_loss += float(loss)
+            run_loss += float(loss.detach())
             n_batches += 1
         train_loss = run_loss / max(n_batches, 1)
 

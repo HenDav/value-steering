@@ -8,7 +8,7 @@
 # VERIFY THE COMPILED PATH: does VFD make outputs SAFER under the SINGLE-STREAM compile opt-in
 # (enforce_eager=False + vfd.single_stream=True + max_num_seqs>=K), driving ONE request at a time
 # (R=1 actual -- the only correct compiled regime)? Compares against the EAGER generations from
-# the parent dir. Submit: sbatch --partition=llm --gres=gpu:a100:1 safety_eval_compiled.sbatch
+# the parent dir. Submit: sbatch --partition=llm --gres=gpu:a100:1 examples/research/safety_eval_compiled.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

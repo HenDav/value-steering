@@ -6,7 +6,32 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+- `load_value_head` now defaults `device` to CUDA-when-available (else CPU, with a warning) and
+  returns a **frozen, eval-mode** head — so scoring with `.p()`/`.logit()` no longer emits spurious
+  autograd warnings, and the pre-trained-head snippet works without a `device` argument.
+- `value_steer.worker` raises a clear "install `value-steer[vllm]`" `ModuleNotFoundError` when vLLM
+  is absent, matching the CLI. `train_probe` detaches the loss before logging.
+- Example harnesses: `safety_eval.sbatch` requires `SAFETY_PROMPTS` up front; the version/behavioral
+  sweep drivers are called from their `examples/research/` path; research scripts fail with a clear
+  message instead of a bare `KeyError`/`IndexError` when a required env var or arg is missing.
+- README pre-trained-head snippets reference the real artifact `value_head.bin` (not `vhead.pt`) and
+  note that `pytest` needs the `[dev]` extra; `CITATION.cff` version bumped to 0.1.1.
+
+### Documentation (paper fidelity)
+- Clarified that the abstention head scores **P(continue)** (gate when the value is LOW), the
+  sign-opposite of VFD's **P(undesirable)** — matching the runner default and the abstention paper's
+  abstain-if-below rule (previously mislabeled "P(should quit)").
+- Attributed the conformal false-intervention bound to the value-filtered-decoding / safety line;
+  the dynamic-abstention paper calibrates empirically and carries no such bound.
+- New "Relation to the papers" section in `docs/training-a-value-head.md` documenting the deliberate
+  simplifications (per-mode polarity, VFD first-safe vs the paper's two-phase rollback, calibration
+  provenance, β=0-only abstention).
+
 ### Added
+- Canon safety-head training/eval harnesses (`examples/slurm/{train_canonical,canonical_eval*,gpu_validate_h100}.sbatch`).
 - **Decode-matched feature extraction** (`scripts/decode_extract.py`) — the supported way to build
   value-head training data. The head is scored at inference on the hidden VFD computes during
   *decode*, which differs from a *prefill* extraction (pooling/HF) by ~0.97 cosine; training on the
@@ -48,5 +73,6 @@ Initial public release.
 - The VFD CUDA-graph/compile path is **single-stream only**; eager (`enforce_eager=True`) is the
   correct serving default for all batch sizes.
 
-[Unreleased]: https://github.com/HenDav/value-steering/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/HenDav/value-steering/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/HenDav/value-steering/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/HenDav/value-steering/releases/tag/v0.1.0

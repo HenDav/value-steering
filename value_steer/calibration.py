@@ -2,12 +2,14 @@
 """
 Conformal threshold calibration for the value-steering plugin.
 
-Ports the statistical core of the paper's `calibrate_thresh`
-(llm_safety/calibration_utils.py), decoupled from the model/data plumbing. Given a
-CALIBRATION SET of held-out examples -- each a binary safety label and the value
-head's per-step probability trajectory -- these pick the decode threshold with a
-finite-sample guarantee on FALSE INTERVENTIONS. That guarantee is what makes the
-threshold the bound the papers advertise rather than a hand-tuned number.
+Ports the statistical core of `calibrate_thresh` (llm_safety/calibration_utils.py),
+decoupled from the model/data plumbing. Given a CALIBRATION SET of held-out examples --
+each a binary safety label and the value head's per-step probability trajectory -- these
+pick the decode threshold with a finite-sample guarantee on FALSE INTERVENTIONS (a safe
+generation is intervened on with prob <= tau). This is the value-filtered-decoding /
+safety-line calibration; the dynamic-abstention paper calibrates its threshold
+empirically (quantile + isotonic) and carries no such conformal bound. The guarantee
+makes the threshold principled rather than hand-tuned.
 
 Pure numpy: no torch, no vLLM. Trajectories are produced upstream by running the
 trained value head over held-out generations (the data step, which needs a GPU);

@@ -8,7 +8,7 @@
 # Confirm "flat in K": decode tok/s for base vs VFD compiled single-stream at K=8 and K=40
 # (max_num_seqs=64 so K=40 captures; scratch stays K*1). If K=40 ~= K=8 tok/s, the candidate
 # forward is bandwidth-bound at 40 rows and higher K is ~free on latency.
-# Submit: sbatch --partition=llm speed_K.sbatch
+# Submit: sbatch --partition=llm examples/research/speed_K.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

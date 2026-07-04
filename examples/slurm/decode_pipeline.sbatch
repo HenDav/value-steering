@@ -8,7 +8,7 @@
 # Fix-A experiment: train the value head on DECODE-matched features (the exact hidden VFD scores)
 # instead of pooling/prefill features, to close the ~0.97 train/inference gap.
 #   gen (VFD never-intervene + capture decode hidden) -> judge-label + split -> train -> [test chained]
-# Same node throughout (cache is node-local). Submit: sbatch -p normal,llm -w <env-node> decode_pipeline.sbatch
+# Same node throughout (cache is node-local). Submit: sbatch -p normal,llm -w <env-node> examples/slurm/decode_pipeline.sbatch
 set -e
 echo "=== node: $(hostname) job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

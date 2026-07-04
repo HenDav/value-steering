@@ -6,7 +6,7 @@
 #SBATCH --mem=64G
 #SBATCH --output=coherence_check.%j.out
 # Pin the VFD degeneration bug: is the diverse-K candidate forward's per-candidate hidden correct?
-# Submit: sbatch --partition=llm,normal,msc token_diag.sbatch
+# Submit: sbatch --partition=llm,normal,msc examples/research/coherence_check.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

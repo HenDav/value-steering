@@ -9,7 +9,7 @@
 # vs VFD), using the paper's verbatim judge prompt. The paper's judge is Llama-3.1-8B-Instruct;
 # meta-llama's copy is gated + only node-locally cached on the (busy) download nodes, so we pull
 # the UNGATED mirror NousResearch/Meta-Llama-3.1-8B-Instruct (same weights) on any free node.
-# Judge needs only transformers, so the vsteer env suffices. Submit: sbatch --partition=llm,normal,msc safety_judge.sbatch
+# Judge needs only transformers, so the vsteer env suffices. Submit: sbatch --partition=llm,normal,msc examples/research/safety_judge_compiled.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh
