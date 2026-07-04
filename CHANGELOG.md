@@ -10,9 +10,9 @@ All notable changes to this project are documented here. The format is based on
 - **Decode-matched feature extraction** (`scripts/decode_extract.py`) — the supported way to build
   value-head training data. The head is scored at inference on the hidden VFD computes during
   *decode*, which differs from a *prefill* extraction (pooling/HF) by ~0.97 cosine; training on the
-  decode-matched features makes the head steer (hh-rlhf, K=16: net unsafe-rate reduction ≈ 0 for
-  prefill-trained → **+0.17** for decode-trained). Generate-and-capture via the new `VFD_DUMP_HIDDEN`
-  runner hook; see `docs/training-a-value-head.md`.
+  decode-matched features makes the head steer, whereas a prefill-trained head barely moves the
+  unsafe rate. Generate-and-capture via the new `VFD_DUMP_HIDDEN` runner hook; see
+  `docs/training-a-value-head.md`.
 
 ### Changed
 - Probe training matches the reference recipe: linear warmup+decay LR schedule (pure torch),

@@ -12,12 +12,8 @@ forward). That tensor differs from a **prefill** extraction (running the full se
 model at once, e.g. an HF forward or vLLM pooling) by **~0.97 cosine** — far more than float noise.
 A head trained on prefill features can be an excellent *classifier* yet fail to *steer*, because
 its sharp decision boundary sits in the wrong place for the decode features it's actually scored
-on. Measured on hh-rlhf (Mistral-7B, Llama judge, K=16):
-
-| training feature | net unsafe-rate reduction (thr 0.3) |
-|---|---|
-| prefill / pooling | **≈ 0** (does not steer) |
-| **decode-matched** | **+0.17** (base 0.45 → 0.28) |
+on. Measured on hh-rlhf (Mistral-7B, Llama judge): a **prefill/pooling** head barely moves the
+unsafe rate, while a **decode-matched** head steers it down at threshold 0.3.
 
 So **extract training features the way they're scored**: generate responses with the VFD runner
 while capturing the per-token decode hidden (`VFD_DUMP_HIDDEN`), then train on those. This is what
@@ -61,10 +57,16 @@ warmup+decay, batch 128, 10 epochs early-stopped).
 
 ## Using the trained head
 
+A pre-trained safety head is published at
+[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head)
+(Mistral-7B-Instruct-v0.3, decode-matched). On the full hh-rlhf harmless-base test split, VFD with
+this head at threshold 0.3 (K=8) reduces the judged unsafe rate versus base, **0.462 → 0.359**. See
+the model card and its `eval_results.md` for the threshold sweep and helpfulness numbers.
+
 ```python
 LLM(model=..., worker_cls="value_steer.worker.ValueSteerWorker",
     additional_config={"vfd": {"enabled": True, "value_head_path": "value_head.bin",
-                               "threshold": 0.3, "num_candidates": 16}})
+                               "threshold": 0.3, "num_candidates": 8}})
 ```
 
 The head steers around **threshold 0.3**. The conformal `--calibrate` threshold in the sidecar is
