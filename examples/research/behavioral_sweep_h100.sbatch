@@ -14,5 +14,5 @@ echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 nvidia-smi | grep -iE "Driver Version|CUDA Version" || true
 cd ${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 unset VSTEER_TORCH_INDEX          # use vLLM default (cu130) wheels on this CUDA-13 node
-bash scripts/behavioral_sweep.sh 0.20.0 0.20.1 0.20.2 0.21.0 0.22.0 0.22.1
+bash examples/research/behavioral_sweep.sh 0.20.0 0.20.1 0.20.2 0.21.0 0.22.0 0.22.1
 echo "=== DONE job ${SLURM_JOB_ID} ==="

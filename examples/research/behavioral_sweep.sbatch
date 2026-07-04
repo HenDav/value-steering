@@ -12,5 +12,5 @@
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 nvidia-smi --query-gpu=name,memory.free --format=csv,noheader
 cd ${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
-bash scripts/behavioral_sweep.sh 0.20.0 0.20.1 0.20.2 0.21.0 0.22.0 0.22.1
+bash examples/research/behavioral_sweep.sh 0.20.0 0.20.1 0.20.2 0.21.0 0.22.0 0.22.1
 echo "=== DONE job ${SLURM_JOB_ID} ==="

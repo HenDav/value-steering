@@ -4,12 +4,12 @@
 # (--no-deps so the pyproject pin doesn't fight the requested version), run the STATIC
 # contract checks, which record_validation()s pass/fail into validated_versions.json.
 # CPU-only (static needs import vllm, no GPU). Behavioral (GPU) is a separate step for any
-# version that passes static.  Usage:  bash scripts/version_sweep.sh 0.20.0 0.20.1 ...
+# version that passes static.  Usage:  bash examples/research/version_sweep.sh 0.20.0 0.20.1 ...
 set -u
 REPO=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh
-conda activate value-steer
-BASEPY=$(which python)                       # python 3.12 to seed the venvs
+conda activate base                          # any python 3.12 to seed the per-version venvs
+BASEPY=$(which python)
 cd "$REPO"
 
 for V in "$@"; do

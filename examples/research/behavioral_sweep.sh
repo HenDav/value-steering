@@ -4,7 +4,7 @@
 # SKIP (which is NOT a pass). So we install torch 2.11.0 from the cu128 index first (runs on
 # the 12.5 driver via CUDA 12.x compat, like 0.19.1's cu128), THEN vLLM. We then REQUIRE the
 # 8 tests to actually run+pass; skips/fails do not count as behavioral=True.
-# Usage (in a SLURM GPU job):  bash scripts/behavioral_sweep.sh 0.20.0 0.20.1 ...
+# Usage (in a SLURM GPU job):  bash examples/research/behavioral_sweep.sh 0.20.0 0.20.1 ...
 set -u
 REPO=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 # Optional torch CUDA index override. On the a100 nodes (driver CUDA 12.5) set
@@ -14,7 +14,7 @@ REPO=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 # torch.cuda guard below will (correctly) fast-skip and record behavioral=None.
 CU=${VSTEER_TORCH_INDEX:-}
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh
-conda activate value-steer
+conda activate base                          # any python 3.12 to seed the per-version venvs
 BASEPY=$(which python)
 cd "$REPO"
 export VALUE_STEER_TEST_MODEL=facebook/opt-125m

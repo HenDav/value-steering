@@ -32,6 +32,7 @@ fi
 export VLLM_ENABLE_V1_MULTIPROCESSING=0 VLLM_HOST_IP=127.0.0.1 TOKENIZERS_PARALLELISM=false
 export VALUE_STEER_MODEL=${VALUE_STEER_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}
 export VALUE_STEER_VHEAD=${VALUE_STEER_VHEAD:?set VALUE_STEER_VHEAD to a trained value head}
+export SAFETY_PROMPTS=${SAFETY_PROMPTS:?set SAFETY_PROMPTS to a jsonl of harmful prompts, each {\"prompt\": ...}}
 export VALUE_STEER_UTIL=0.45 SAFETY_N=64 VFD_K=8 SAFETY_MAXTOK=128
 export ENFORCE_EAGER=1   # FIX: batched (R>1) VFD must run eager -- the compile path is R=1-only
 echo "=== gen base (eager) ===";       python scripts/safety_eval.py gen base   || echo "BASE FAILED"
