@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- Helpfulness is now judged by the paper's Llama-3.1-8B **helpful/unhelpful compliance judge**
+  (`build_helpfulness_judge_messages`, replicated verbatim from `llm_safety`), reported alongside the
+  unsafe rate by `safety_eval.py judge`. This replaces the Ray2333 reward model as the helpfulness
+  metric (Ray2333 remains only as an independent harmlessness check). Adds a `helpfulness` verifier.
+
 ## [0.1.1]
 
 ### Fixed

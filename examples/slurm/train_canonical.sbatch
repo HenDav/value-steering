@@ -67,7 +67,7 @@ PY
 echo "########## 1. decode-cache GEN (S=$S samples/prompt, VFD never-intervene + dump) ##########"
 python scripts/decode_extract.py --phase gen --cache-dir "$CACHE" --model "$MODEL" \
   --head "$ROOT/trained/safety_decode/value_head.bin" --source "$PROMPTS" --n "$N" \
-  --samples-per-prompt "$S" --max-tokens 128 --gen-chunk 256 --max-num-seqs 16 --util 0.45
+  --samples-per-prompt "$S" --max-tokens 400 --gen-chunk 256 --max-num-seqs 16 --util 0.45
 
 echo "########## 2. vLLM-judge LABEL + split train/val ##########"
 python scripts/decode_extract.py --phase label --cache-dir "$CACHE" --model "$MODEL" \

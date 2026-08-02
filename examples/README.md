@@ -36,7 +36,7 @@ The eval/profiling/diagnostic harnesses read a few more knobs (all optional, wit
 | `VALUE_STEER_TEST_MODEL` | small model for quick GPU smoke tests | `facebook/opt-125m` |
 | `VALUE_STEER_UTIL` | vLLM `gpu_memory_utilization` | `0.45` |
 | `JUDGE_MODEL` | judge/reward model for safety scoring | `NousResearch/Meta-Llama-3.1-8B-Instruct` |
-| `SAFETY_N` / `SAFETY_MAXTOK` / `SAFETY_SEED` | eval prompt count / max new tokens / seed | `64` / `128` / `15` |
+| `SAFETY_N` / `SAFETY_MAXTOK` / `SAFETY_SEED` | eval prompt count / max new tokens / seed | `64` / `400` / `15` |
 | `VFD_K` / `VFD_THRESHOLD` | candidates per step / intervention threshold | `8` / `0.5` |
 | `ENFORCE_EAGER` | `1` = eager (serving default); `0` = compile | `1` |
 | `SINGLE_STREAM` | opt into the compiled single-stream path (one request at a time) | `0` |

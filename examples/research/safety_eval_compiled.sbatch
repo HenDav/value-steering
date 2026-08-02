@@ -31,7 +31,7 @@ fi
 export VLLM_ENABLE_V1_MULTIPROCESSING=0 VLLM_HOST_IP=127.0.0.1 TOKENIZERS_PARALLELISM=false
 export VALUE_STEER_MODEL=${VALUE_STEER_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}
 export VALUE_STEER_VHEAD=${VALUE_STEER_VHEAD:?set VALUE_STEER_VHEAD to a trained value head}
-export VALUE_STEER_UTIL=0.45 SAFETY_N=64 VFD_K=8 SAFETY_MAXTOK=128
+export VALUE_STEER_UTIL=0.45 SAFETY_N=64 VFD_K=8 SAFETY_MAXTOK=400
 export SINGLE_STREAM=1   # compiled single-stream opt-in; do_gen forces enforce_eager=False + sequential R=1
 export SAFETY_OUTDIR=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}/safety_compiled
 mkdir -p "$SAFETY_OUTDIR"

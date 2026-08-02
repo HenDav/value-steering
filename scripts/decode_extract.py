@@ -72,7 +72,7 @@ def do_gen(args):
     # mismatches in the per-request dump dict.
     for i in range(0, len(exp), args.gen_chunk):
         grp = exp[i:i + args.gen_chunk]
-        sps = [SamplingParams(temperature=args.temperature, top_p=args.top_p,
+        sps = [SamplingParams(temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
                               max_tokens=args.max_tokens, seed=args.seed + i + j)  # distinct per request
                for j in range(len(grp))]
         runner._dump_hidden.clear()
@@ -157,9 +157,10 @@ def main():
     ap.add_argument("--n", type=int, default=None)
     ap.add_argument("--samples-per-prompt", type=int, default=1,
                     help="generate (and label) this many continuations per prompt; each gets a distinct seed")
-    ap.add_argument("--max-tokens", type=int, default=128)
+    ap.add_argument("--max-tokens", type=int, default=400)   # match llm_safety (--max_new_tokens 400)
     ap.add_argument("--temperature", type=float, default=1.0)
-    ap.add_argument("--top-p", type=float, default=0.9)
+    ap.add_argument("--top-k", type=int, default=50)         # match llm_safety (top_k=50, no top_p)
+    ap.add_argument("--top-p", type=float, default=1.0)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--util", type=float, default=0.45)
     ap.add_argument("--max-num-seqs", type=int, default=16)
