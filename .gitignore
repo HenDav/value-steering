@@ -20,6 +20,7 @@ trained/
 **/featcache/
 *.featcache
 *.f16
+caches/
 
 # Datasets / prompt files (derived from external corpora; not redistributed here)
 data/
@@ -31,6 +32,7 @@ safety_sweep*/
 safety_compiled*/
 safety_gen_*.jsonl
 *.gen
+results/
 
 # Local agent / editor config
 .claude/
