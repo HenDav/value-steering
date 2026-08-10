@@ -42,7 +42,6 @@ fi
 
 export VALUE_STEER_TEST_MODEL=facebook/opt-125m   # downloads on first use (node has internet)
 export TOKENIZERS_PARALLELISM=false
-export VFD_DEBUG=1                                  # verbose VFD position/block tracing
 export VLLM_ENABLE_V1_MULTIPROCESSING=0             # in-process engine: reach the live runner; no forked-CUDA crash
 export VLLM_HOST_IP=127.0.0.1                       # avoid IPv6 hostname rendezvous stall (c10d errno 97)
 

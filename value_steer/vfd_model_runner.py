@@ -106,33 +106,34 @@ real rows back out. PIECEWISE keeps attention eager, so our per-layer slot_mappi
 drives the KV write; FULL is excluded at dispatch (it would capture attention with static
 metadata, incompatible with VFD's per-step scratch tables) and any no-graph case (cudagraphs
 off, enforce_eager, n too large, mrope/xdrope) falls back to the eager path -- always
-correct, just unaccelerated. This removes the need for enforce_eager AT BATCH SIZE 1.
+correct, just unaccelerated. Capture works at ALL batch sizes -- R==1 AND R>1 concurrent;
+the R>1 graph needs max_num_seqs>=R*K (vLLM captures the n=R*K uniform-decode graph only
+when max_num_seqs>=that size), above which the candidate forward falls back to the eager path.
 VALIDATED on A100 (vLLM 0.19.1, opt-125m): with cudagraphs ON, VFD greedy
 reproduces base greedy token-for-token AND the graph actually replayed (_vfd_replay_fired>0)
 -- including the padded-batch case (n straddling a capture size). See
 tests/test_gpu_behavioral.py::test_vfd_compiled_matches_base_and_replays.
 
-*** V1 SAFETY CONTRACT (single-stream-only compile path; eager is the serving default) ***
-The compile/cudagraph speedup is correct AND reachable only for SINGLE-REQUEST decode, and the
-two reasons pull opposite ways:
-  (a) CORRECTNESS: at >1 CONCURRENT request (R>1) the candidate forward batches R*K rows -- a
-      shape outside what vLLM compiled for plain decode -- and the COMPILED model corrupts every
-      request after the first (request 0 stays correct; reproduced R=4 captured / R=8 fallback;
-      see memory vfd-safety-eval). EAGER (enforce_eager=True) is correct for ALL R.
-  (b) REPLAY/CAPTURE: the K-candidate forward is a uniform-decode batch of n=R*K rows; vLLM only
-      captures a uniform-decode graph at N rows when max_num_seqs>=N (gpu_model_runner._dummy_run
-      builds num_reqs=min(max_num_seqs,N) at 1 tok/req and asserts sum==N), and
-      max_cudagraph_capture_size defaults to min(max_num_seqs*2,512). So at max_num_seqs=1 the
-      candidate graph CANNOT capture (n=K>2) and the compile path falls back to eager -- the
-      speedup is UNREACHABLE there (correct, just unaccelerated).
-Replay needs max_num_seqs>=K; correctness needs R==1 actual concurrency -- and the engine can't
-guarantee R==1 while max_num_seqs>=K. So the speedup is a SINGLE-REQUEST-LATENCY opt-in: set the
-vfd flag single_stream=True AND max_num_seqs>=K AND drive exactly ONE request at a time (offline /
-single-user / benchmarking). NOT safe for concurrent serving. Without single_stream, __init__
-FAILS FAST when enforce_eager=False AND max_num_seqs>1. The DEFAULT supported path is EAGER
-(correct for all R; the safety result runs here). The proper safe-by-construction fix (compile at
-max_num_seqs=1) is to recast the candidate forward as ONE request with query_len=K via vLLM's
-spec-decode tree machinery (depth-1 K-leaf tree) -- future work.
+*** COMPILED BATCHED DECODE (enforce_eager=False, max_num_seqs>1, R>1) -- SUPPORTED & CORRECT ***
+Compiled batched VFD decode is correct for ALL R -- there is no single-stream restriction. Two
+fixes make it correct, both gated on self._model_compiled so the EAGER token stream stays
+byte-for-byte unchanged:
+  (a) fast_build=True for the candidate FA-metadata build (self._candidate_fast_build) sidesteps
+      FlashAttention-3's persistent AOT scheduler_metadata buffer that the n=R*K candidate batch
+      otherwise overflows (a crash at flash_attn.py:507).
+  (b) the candidate forward populates the runner's persistent input_ids/positions buffers even on
+      the eager-fallback (cg_mode=NONE) path -- the in-place torch.compile'd model reads THOSE
+      buffers, not the tensors passed to _model_forward; without it reqs after the first decoded
+      against stale buffer contents (garbled "request 0" content).
+There is NO fail-fast guard: __init__ no longer raises for (enforce_eager=False AND max_num_seqs>1).
+single_stream is NOT a correctness gate -- it now ONLY sizes the scratch reserve (K blocks under
+single_stream, else K*max_num_seqs). Batched CUDA-graph CAPTURE is enabled too: the candidate
+forward is captured at R==1 AND R>1 whenever its n=R*K rows fit a captured graph. Capturing the
+R>1 graph needs max_num_seqs>=R*K (vLLM captures an N-row uniform-decode graph only when
+max_num_seqs>=N; ceiling = min(max_num_seqs*2, 512)), above which it falls back to the still-
+inductor-compiled eager path. Measured FASTER than eager (Mistral-7B, h100): capture-vs-eager
+tok/s at R=1/2/4/8/16 = +17/+15/+26/+11/+10%. EAGER (enforce_eager=True) stays correct for all R
+and is the serving default.
 
 NOTE (load-bearing): the KV-write op reads the new-token slot from
 forward_context.slot_mapping[layer_name], NOT from attn_metadata -- so _candidate_forward
@@ -145,16 +146,16 @@ Spec decode must be OFF.
 
 from __future__ import annotations
 
-import contextlib
 import os
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from vllm.config import VllmConfig
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
 
 from .scratch_alloc import ScratchAllocator, candidate_block_layout
-from .steering_ops import select_vfd, warp_logits
+from .steering_ops import select_vfd
 
 # Shared scalar head + feature contract (same module abstention uses).
 from .value_probe import ValueHead, load_value_head, request_threshold
@@ -174,14 +175,11 @@ class VFDModelRunner(GPUModelRunner):
         self.args_fallback: bool = bool(cfg.get("args_fallback", False))
         self.prob_weight: float = float(cfg.get("prob_weight", 1.0))
         self.strict: bool = bool(cfg.get("strict", False))   # CI: re-raise, don't swallow
-        # Opt-in: allow the compile/cudagraph speedup with max_num_seqs>1. The candidate
-        # graph only CAPTURES when max_num_seqs >= the (padded) K-row batch (vLLM's
-        # uniform-decode capture needs one request slot per candidate row -- see the guard
-        # below), so the speedup is unreachable at max_num_seqs=1. But max_num_seqs>1 is also
-        # the regime where >1 CONCURRENT request corrupts (R>1; see the docstring). Setting
-        # this flag asserts "I will only ever drive ONE request at a time" (single-request
-        # latency benchmarking); the engine cannot enforce that, so it stays opt-in and is
-        # NOT safe for concurrent serving. Default serving path is eager (correct for all R).
+        # single_stream is NOT a correctness gate -- compiled batched serving is correct for all R
+        # (see the docstring). It ONLY sizes the scratch reserve: when set, peak concurrency is
+        # assumed to be 1, so the reserve is K blocks instead of K*max_num_seqs (a big saving, since
+        # the compile path forces max_num_seqs>=K). Leave it False for concurrent serving; set it
+        # only when you truly drive one request at a time (offline / single-user / benchmarking).
         self.single_stream: bool = bool(cfg.get("single_stream", False))
 
         if vllm_config.speculative_config is not None and self.vfd_enabled:
@@ -194,44 +192,37 @@ class VFDModelRunner(GPUModelRunner):
                 "VFD requires synchronous scheduling; launch with async_scheduling=False "
                 "(its single-forward decode path has no async/pipelined output branch)."
             )
-        # V1 SAFETY CONTRACT: the CUDA-graph/torch.compile decode path is correct for
-        # SINGLE-REQUEST decode only. Two grounded facts force this (vLLM 0.19.1):
-        #   (a) CORRECTNESS: at >1 CONCURRENT request (R>1) the compiled model corrupts every
-        #       request after the first (request 0 stays correct; see the R-sweep in memory
-        #       vfd-safety-eval). Eager mode is correct for ALL batch sizes.
-        #   (b) REPLAY: the K-candidate forward is a uniform-decode batch of n=R*K rows. vLLM
-        #       only CAPTURES a uniform-decode graph at num_tokens N when max_num_seqs >= N
-        #       (gpu_model_runner._dummy_run: num_reqs=min(max_num_seqs, N), and it asserts
-        #       sum(scheduled)==N with 1 tok/req), and max_cudagraph_capture_size defaults to
-        #       min(max_num_seqs*2, 512). So at max_num_seqs=1 the candidate graph CANNOT be
-        #       captured (n=K>1 > ceiling 2) -> the compile path silently falls back to eager
-        #       and the speedup is UNREACHABLE.
-        # (a) and (b) point opposite ways: replay needs max_num_seqs>=K, correctness needs R==1
-        # actual concurrency -- the engine can't guarantee the latter when the former holds. So
-        # the compile speedup is a SINGLE-REQUEST-LATENCY opt-in (set max_num_seqs>=K AND drive
-        # one request at a time), gated behind `single_stream=True`. Without that opt-in we fail
-        # fast on (not eager) AND max_num_seqs>1 rather than silently mis-decode batched requests.
-        # The DEFAULT / supported serving path is eager (correct for all R; the safety win runs
-        # here). max_num_seqs=1 + compile is allowed but just falls back to eager per (b).
-        mns = int(getattr(vllm_config.scheduler_config, "max_num_seqs", 1) or 1)
+        # torch.compile / CUDA-graph decode. Correct for ALL batch sizes (eager and compiled) after
+        # the two compiled-batched fixes documented at self._model_compiled below. The candidate
+        # forward is cudagraph-CAPTURED whenever the n=R*K rows fit a captured graph -- at R==1 AND R>1
+        # (+10..26% tok/s vs eager, validated correct at R=2/4/8/16). vLLM captures a uniform-decode
+        # graph at N rows only when max_num_seqs>=N (gpu_model_runner._dummy_run) and
+        # max_cudagraph_capture_size defaults to min(max_num_seqs*2, 512), so capturing the R>1 graph
+        # needs max_num_seqs>=R*K; above the ceiling the candidate forward falls back to the (still
+        # inductor-compiled) eager path. See _vfd_cudagraph_dispatch.
         eager = bool(getattr(vllm_config.model_config, "enforce_eager", False))
-        if self.vfd_enabled and (not eager) and mns > 1 and not self.single_stream:
-            raise ValueError(
-                "VFD's CUDA-graph/torch.compile decode path is validated for single-request "
-                f"decode only, but max_num_seqs={mns} > 1 with enforce_eager=False would corrupt "
-                "requests after the first. For batched serving set enforce_eager=True (correct for "
-                "all batch sizes). To opt into the single-request-latency speedup, set the vfd "
-                "config flag single_stream=True (you must then drive exactly ONE request at a time; "
-                f"and max_num_seqs ({mns}) must be >= num_candidates ({self.K}) for the candidate "
-                "graph to capture -- otherwise it falls back to eager)."
-            )
-        if self.vfd_enabled and (not eager) and self.single_stream and mns > 1 and mns < self.K:
-            print(
-                f"[VFD] single_stream WARNING: max_num_seqs={mns} < num_candidates K={self.K}, so "
-                f"vLLM cannot capture the {self.K}-row candidate graph -- the compile path will "
-                f"fall back to eager (correct, but no speedup). Set max_num_seqs >= K to get the "
-                f"cudagraph speedup.", flush=True,
-            )
+        # Under torch.compile (not eager) the FA backend allocates a PERSISTENT AOT
+        # scheduler_metadata buffer sized for the engine's max batch; VFD's n=R*K candidate
+        # forward overflows it (flash_attn.py build() line ~507). fast_build=True disables AOT
+        # scheduling for the candidate metadata (the spec-decode path FA provides for exactly
+        # this few-iteration dynamic shape), sidestepping that buffer. Eager has no such buffer,
+        # so keep AOT there (preserves the validated eager token stream).
+        self._candidate_fast_build = not eager
+        # Whether the model is torch.compiled in place (enforce_eager=False). The compiled forward
+        # reads input_ids/positions from the runner's persistent buffers, so the candidate forward
+        # must populate them (see _candidate_forward_impl); eager reads the passed args directly.
+        self._model_compiled = not eager
+        # COMPILED BATCHED decode (enforce_eager=False, max_num_seqs>1, R>1 concurrent) is SUPPORTED.
+        # Two fixes made it correct (2026-08, vLLM 0.19.1, Mistral-7B, h100; validated EOS 13/16 ==
+        # eager, vs a broken 1/16): (1) fast_build=True for the candidate FA metadata build
+        # (self._candidate_fast_build) sidesteps FA3's persistent AOT scheduler_metadata buffer, which
+        # the n=R*K candidate batch otherwise overflows (flash_attn.py:507 crash); (2) the candidate
+        # forward populates the runner's persistent input_ids/positions buffers on the eager-fallback
+        # NONE path (see _candidate_forward_impl) -- the in-place-compiled model reads those buffers,
+        # not the passed args, so without this reqs 1+ decoded against stale buffer state. The
+        # candidate forward is cudagraph-captured at any R whose n=R*K fits a captured graph (see
+        # _vfd_cudagraph_dispatch), falling back to the inductor-compiled eager path above the ceiling.
+        # single_stream now only sizes the scratch reserve (K vs K*max_num_seqs).
 
         hidden = self.model_config.get_hidden_size()
         if (p := cfg.get("value_head_path")):
@@ -293,21 +284,9 @@ class VFDModelRunner(GPUModelRunner):
         # Populated in _select; consumed by scripts/decode_extract.py to capture decode features.
         self._dump_hidden = {} if os.environ.get("VFD_DUMP_HIDDEN") else None
 
-        # Per-phase timing (VFD_PROFILE=1): CUDA-event ms accumulated per phase across steady
-        # steps, dumped every _prof_every steps. Used to TARGET further optimization at the
-        # phase that actually dominates rather than guessing. Adds a sync per phase, so it is
-        # opt-in only (off = zero overhead, the _phase context manager no-ops).
-        self._debug = bool(os.environ.get("VFD_DEBUG"))
-        # A/B toggle for the _next_pos re-anchor bugfix (default: fixed). VFD_NO_ANCHOR_FIX=1
-        # restores the old buggy behavior (re-anchor ALL active) to reproduce the R>1 degeneration.
-        self._anchor_reset_all = bool(os.environ.get("VFD_NO_ANCHOR_FIX"))
-        self._prof_on = bool(os.environ.get("VFD_PROFILE"))
-        self._prof: dict[str, float] = {}
-        self._prof_steps = 0
-        self._prof_every = int(os.environ.get("VFD_PROFILE_EVERY", "64"))
 
         # CUDA-graph capture of the per-layer KV surgery (copy + commit). Those loops are
-        # ~95% kernel-launch overhead (VFD_PROFILE: ~2ms/step on Mistral-7B, data moved is
+        # ~95% kernel-launch overhead (measured ~2ms/step on Mistral-7B, data moved is
         # tiny); replaying the L-layer loop as ONE captured graph collapses ~64 launches to 1.
         # Captured lazily per exact row-count (zero padding waste). The per-op gather temp
         # scales with rows*block_size, so capture is capped to small batches (where launch
@@ -330,6 +309,23 @@ class VFDModelRunner(GPUModelRunner):
         # position 0 and overwrite the prompt's KV. Anchored at prompt length when a
         # request is taken over, then +1 per committed token.
         self._next_pos: dict[str, int] = {}
+        # Deferred commits (block-boundary fix): when a winner's new token is the FIRST token of a
+        # fresh KV block (offset 0) whose real block the scheduler has NOT allocated yet (block-table
+        # entry still 0/padding), committing to it would write into physical block 0 and corrupt
+        # position 0. Instead we RETAIN the winner's new-token K/V (per layer) here and flush it into
+        # the real block on the next step, once the scheduler has allocated it (it always is by then).
+        # {req_id: (tail_idx, offset, [per-layer K/V slot tensor])}
+        self._deferred: dict[str, tuple] = {}
+        # [B]-reentry single-writer fix: on a not-steady step VFD calls super().execute_model() to
+        # prefill the newcomers, but that base forward ALSO forwards every ongoing decoder at
+        # position num_computed -- a slot whose token VFD has NOT emitted yet -- and writes GARBAGE
+        # K/V there (base samples from a stale input row). On an ordinary position VFD's candidate
+        # commit overwrites it; at a block boundary VFD DEFERS, so base's garbage survives into the
+        # prefix (the R>1 batched/compiled corruption: request 0 fine, joiners corrupt). Fix: before
+        # that super() call, record the ongoing decoders here; the _prepare_inputs override sinks
+        # their decode-row slot_mapping to PAD_SLOT_ID(-1) so base SKIPS the K/V write for them.
+        # VFD's candidate forward then becomes the SOLE writer of every decoder's K/V.
+        self._sink_slots_for: set[str] = set()
 
     # ============================================================== #
     # Seam A: reserve private scratch KV blocks at worker init.       #
@@ -410,6 +406,27 @@ class VFDModelRunner(GPUModelRunner):
     # -- VALIDATED on A100 (batched/different-length test). Async        #
     # scheduling is rejected in __init__ (no async output path).         #
     # ============================================================== #
+    def _prepare_inputs(self, scheduler_output, num_scheduled_tokens):
+        # Delegate to vLLM (populates blk_table.slot_mapping.gpu via compute_slot_mapping), then
+        # sink the ongoing decoders' decode-row slots to PAD_SLOT_ID(-1). _get_slot_mappings reads
+        # that same buffer as a VIEW *after* this returns (gpu_model_runner 0.19.1: _prepare_inputs
+        # ~L3858 precedes _get_slot_mappings ~L3958), and reshape_and_cache_flash skips slot<0 (the
+        # padding contract, backends/utils.PAD_SLOT_ID=-1). So base's forward still runs for these
+        # rows but WRITES NO K/V -- leaving VFD's candidate forward the sole writer. Only fires on a
+        # not-steady step (execute_model sets _sink_slots_for right before super().execute_model()).
+        out = super()._prepare_inputs(scheduler_output, num_scheduled_tokens)
+        if self.vfd_enabled and self._sink_slots_for:
+            offs = np.concatenate([[0], np.cumsum(np.asarray(num_scheduled_tokens))])
+            req_ids = self.input_batch.req_ids
+            rows = [i for i, r in enumerate(req_ids) if r in self._sink_slots_for]
+            if rows:
+                for gid, _ in enumerate(self.kv_cache_config.kv_cache_groups):
+                    sm = self.input_batch.block_table[gid].slot_mapping.gpu
+                    for i in rows:
+                        sm[int(offs[i]):int(offs[i + 1])] = -1     # PAD_SLOT_ID -> no K/V write
+            self._sink_slots_for = set()
+        return out
+
     def execute_model(self, scheduler_output, *args, **kwargs):
         if not self.vfd_enabled:
             return super().execute_model(scheduler_output, *args, **kwargs)
@@ -433,6 +450,14 @@ class VFDModelRunner(GPUModelRunner):
                 # winner -- rather than letting base sample (which would take that position
                 # and desync VFD by one). We return a ModelRunnerOutput so the engine skips
                 # sample_tokens (engine/core.py: sample_tokens runs only if output is None).
+                #
+                # SINGLE-WRITER: the requests ALREADY decoding (in _pending_tok) must not have their
+                # K/V written by this base forward -- it would forward them at position num_computed
+                # (a slot VFD hasn't emitted) and write garbage. Mark them so the _prepare_inputs
+                # override (invoked inside super().execute_model()) sinks their slots to -1. The
+                # newcomers (prefilling P) are NOT in _pending_tok yet, so base still writes their
+                # prompt K/V. VFD's candidate forward below is then the sole writer for the decoders.
+                self._sink_slots_for = {r for r in scheduled if r in self._pending_tok}
                 super().execute_model(scheduler_output, *args, **kwargs)
                 active = self._active_req_ids()                  # fresh: super ran _update_states
                 self._seed_from_base(active)
@@ -447,23 +472,28 @@ class VFDModelRunner(GPUModelRunner):
                     # churns -- the R>1 degeneration). Ongoing decoders keep their self-tracked
                     # _next_pos (set here once, then +1 per commit in _select).
                     for r in active:
-                        if (not self._anchor_reset_all) and (r in self._next_pos):
+                        if r in self._next_pos:
                             continue
                         idx = self.input_batch.req_id_to_index[r]
                         self._next_pos[r] = int(self.input_batch.num_prompt_tokens[idx])
-                    self._dbg("bootstrap: seeded+emitting", active,
-                              "pos", [self._next_pos[r] for r in active])
                     self.execute_model_state = None              # consumed; skip base sampling
+                    self._flush_deferred(active)                 # block-boundary deferred K/V
                     h_cand, scratch_idx, plan = self._candidate_forward(active)
                     winners = self._select(active, h_cand, scratch_idx, plan)
                     return self._build_output(active, winners)
                 # Genuinely mixed (some still prefilling): let base emit this step and drop
                 # any partial seeds so we only take over once the whole batch is decodable.
-                for r in [x for x in self._pending_tok if x in active]:
+                mixed_drop = [x for x in self._pending_tok if x in active]
+                for r in mixed_drop:
                     self._pending_tok.pop(r, None)
                     self._pending_logp.pop(r, None)
-                    self._next_pos.pop(r, None)
-                self._dbg("mixed step -> base forward", active)
+                    # KEEP _next_pos: this return-None path leaves execute_model_state intact, so the
+                    # engine samples ONE base token for each ongoing decoder this step, advancing its
+                    # true length by one. Popping _next_pos here made the next bootstrap step re-anchor
+                    # the decoder to PROMPT length (position reset -> KV corruption at boundary-adjacent
+                    # positions -- the R>1 batched residual). Mirror the base emit with +1 instead.
+                    if r in self._next_pos:
+                        self._next_pos[r] += 1
                 return None                                      # engine calls sample_tokens
 
             # Steady-state decode: the candidate forward IS this step's forward. VFD bypasses
@@ -473,10 +503,10 @@ class VFDModelRunner(GPUModelRunner):
             self.input_batch.block_table.commit_block_table(self.input_batch.num_reqs)
             active = self._active_req_ids()
             self._reject_logprobs(active)
+            self._flush_deferred(active)                                  # block-boundary deferred K/V
             h_cand, scratch_idx, plan = self._candidate_forward(active)   # [R,K,H] + bookkeeping
             winners = self._select(active, h_cand, scratch_idx, plan)     # score+commit+reseed
             out = self._build_output(active, winners)
-            self._prof_maybe_dump()
             return out
         except NotImplementedError:
             raise
@@ -499,42 +529,7 @@ class VFDModelRunner(GPUModelRunner):
                     "them for VFD requests or extend _build_output."
                 )
 
-    def _dbg(self, *parts) -> None:
-        if self._debug:
-            print("[VFD]", *parts, flush=True)
 
-    @contextlib.contextmanager
-    def _phase(self, name: str):
-        """Time a steady-step phase with CUDA events when VFD_PROFILE=1; else a no-op.
-        Accumulates ms into self._prof[name]; the caller dumps periodically (_prof_maybe_dump)."""
-        if not self._prof_on:
-            yield
-            return
-        s = torch.cuda.Event(enable_timing=True)
-        e = torch.cuda.Event(enable_timing=True)
-        s.record()
-        try:
-            yield
-        finally:
-            e.record()
-            torch.cuda.synchronize()
-            self._prof[name] = self._prof.get(name, 0.0) + s.elapsed_time(e)
-
-    def _prof_maybe_dump(self) -> None:
-        """Print mean per-phase ms over the last _prof_every steady steps, then reset."""
-        if not self._prof_on:
-            return
-        self._prof_steps += 1
-        if self._prof_steps % self._prof_every:
-            return
-        n = self._prof_every
-        total = sum(self._prof.values()) or 1.0
-        parts = " ".join(
-            f"{k}={self._prof[k] / n:.3f}ms({100 * self._prof[k] / total:.0f}%)"
-            for k in sorted(self._prof, key=lambda k: -self._prof[k])
-        )
-        print(f"[VFD-PROFILE] steps={n} mean/step: {parts}", flush=True)
-        self._prof.clear()
 
     # ============================================================== #
     # Seam 1 (concrete): sample K candidates from the warped LM dist. #
@@ -559,19 +554,33 @@ class VFDModelRunner(GPUModelRunner):
                 continue
             warped = self._warp(logits, req_id)                              # temp/top-p
             probs = F.softmax(warped, dim=-1)
-            toks = torch.multinomial(probs, self.K, replacement=True)        # [K]
+            # Use the request's OWN generator (as vLLM's sampler does), not the global torch RNG:
+            # a bare torch.multinomial advances shared global state, so with R>1 each request's
+            # candidates depend on the other requests in the batch (and on their order) -- a
+            # cross-request coupling absent from base decode. The per-request generator isolates them.
+            gen = getattr(self.requests[req_id], "generator", None)
+            toks = torch.multinomial(probs, self.K, replacement=True, generator=gen)   # [K]
             self._pending_tok[req_id] = toks
             self._pending_logp[req_id] = torch.log(probs[toks].clamp_min(1e-12))
 
     def _warp(self, logits: torch.Tensor, req_id: str) -> torch.Tensor:
-        """Apply the request's temperature/top-p so candidates are drawn from the
-        same distribution vLLM would sample. TODO(gpu): for exact parity, reuse the
-        request's vLLM logits-processor stack (top_k/min_p/penalties) instead of this
-        temperature+top_p subset."""
+        """Apply the request's temperature + top_k/top_p so candidates are drawn from EXACTLY
+        vLLM's sampling distribution. We call vLLM's own apply_top_k_top_p rather than the pure
+        warp_logits helper: warp_logits' nucleus boundary convention (keep-crossing-token) differs
+        from vLLM's (remove-from-bottom cumsum<=1-p) by one token, so it drew from a slightly
+        BROADER nucleus -> off-vLLM-nucleus tokens -> long-run degeneration (newline/word loops).
+        Grounded against pinned vLLM 0.19.1: apply_top_k_top_p(logits[B,V], k|None, p|None)."""
+        from vllm.v1.sample.ops.topk_topp_sampler import apply_top_k_top_p
         sp = self.requests[req_id].sampling_params
         temperature = float(getattr(sp, "temperature", 1.0) or 1.0)
+        out = logits / max(temperature, 1e-5)
         top_p = float(getattr(sp, "top_p", 1.0) or 1.0)
-        return warp_logits(logits, temperature, top_p)
+        top_k = int(getattr(sp, "top_k", 0) or 0)
+        k = None if top_k <= 0 else torch.tensor([top_k], device=out.device)
+        p = None if top_p >= 1.0 else torch.tensor([top_p], device=out.device, dtype=out.dtype)
+        if k is None and p is None:
+            return out
+        return apply_top_k_top_p(out.unsqueeze(0).clone(), k, p).squeeze(0)
 
     def _vfd_cudagraph_dispatch(self, n: int):
         """Decide whether the n=R*K candidate forward can replay a captured graph.
@@ -592,6 +601,13 @@ class VFDModelRunner(GPUModelRunner):
         because the NONE fallback is always correct (just unaccelerated)."""
         from vllm.config import CUDAGraphMode
         from vllm.forward_context import BatchDescriptor
+        # Cudagraph-capture the candidate forward whenever a captured PIECEWISE graph fits the n=R*K
+        # rows -- at R==1 AND R>1. VALIDATED correct + faster at R=2/4/8/16 (greedy texts coherent per
+        # request, no cross-request bleed; +10..26% tok/s vs eager). The dispatcher rounds n up to a
+        # captured size and returns NONE when none fits (n > max_cudagraph_capture_size = min(mns*2,
+        # 512)), so large batches fall back to the eager path automatically. Capturing the R>1 graph
+        # requires max_num_seqs >= n=R*K (vLLM captures an N-row uniform-decode graph only when
+        # max_num_seqs >= N); size max_num_seqs to the concurrency you want captured (scratch = K*mns).
         if not self._vfd_compile_ok:
             return CUDAGraphMode.NONE, BatchDescriptor(n)
         return self.cudagraph_dispatcher.dispatch(
@@ -608,10 +624,12 @@ class VFDModelRunner(GPUModelRunner):
     # ============================================================== #
     @torch.inference_mode()
     def _candidate_forward(self, active_req_ids: list[str]):
+        return self._candidate_forward_impl(active_req_ids)
+
+    def _candidate_forward_impl(self, active_req_ids: list[str]):
         R, K = len(active_req_ids), self.K
         n = R * K
         device = self.device
-
         # Flatten candidates to [n] and their positions (each candidate sits at the
         # next position VFD will generate for its request -- tracked in self._next_pos).
         toks = torch.cat([self._pending_tok[r] for r in active_req_ids])        # [n]
@@ -630,19 +648,16 @@ class VFDModelRunner(GPUModelRunner):
         cg_mode, batch_desc = self._vfd_cudagraph_dispatch(n)
         n_pad = int(batch_desc.num_tokens)                                      # == n if NONE
 
-        with self._phase("meta"):
-            cm, scratch_idx, plan = self._build_candidate_metadata(
-                active_req_ids, seq_lens_per_req, n_pad
-            )
+        cm, scratch_idx, plan = self._build_candidate_metadata(
+            active_req_ids, seq_lens_per_req, n_pad
+        )
         try:
             # Make each candidate's scratch block a copy of the request's real tail
             # block, so attention reads the real prefix tail; the forward then writes
             # the candidate's new-token KV at offset p % block_size. (Pad rows are not in
             # `plan` -- they read/write the dedicated pad sink and are sliced off below.)
-            with self._phase("copy"):
-                self._copy_real_tail_to_scratch(plan)
-            with self._phase("meta"):
-                attn_metadata = self._build_per_layer_metadata(cm)
+            self._copy_real_tail_to_scratch(plan)
+            attn_metadata = self._build_per_layer_metadata(cm)
             # The KV-write op (unified_kv_cache_update) reads the new-token slot from
             # forward_context.slot_mapping[layer_name], NOT from attn_metadata. Pass our
             # candidate slot_mapping per layer, else the candidate KV lands in a stale slot
@@ -654,17 +669,19 @@ class VFDModelRunner(GPUModelRunner):
                 for g in self.kv_cache_config.kv_cache_groups
                 for ln in g.layer_names
             }
-            if cg_mode != CUDAGraphMode.NONE:
-                # PIECEWISE-replay path -- VALIDATED on A100: greedy==base under
-                # cudagraphs with replay actually firing, padded case included
-                # (test_vfd_compiled_matches_base_and_replays).
-                # The PIECEWISE graph replays against the persistent input buffers at the
-                # addresses fixed at capture (cuda_graph.py does NOT copy inputs on replay).
-                # So write candidate inputs INTO self.input_ids/self.positions and pass the
-                # SAME slices the parent captured (buf[:n_pad] shares buf's base data_ptr).
-                # Pad rows [n:n_pad] get token 0 / position 0; their (discarded) attention
-                # reads the pad sink. _update_states does not touch these buffers, so VFD
-                # owns them for this step.
+            if self._model_compiled:
+                # LOAD-BEARING for compiled decode: the model is compiled IN PLACE
+                # (self.model.compile() in gpu_model_runner), so it reads input_ids/positions from
+                # these PERSISTENT buffers, NOT from the tensors passed to _model_forward -- on BOTH
+                # the PIECEWISE-replay path (the graph reads the fixed capture addresses; cuda_graph.py
+                # does NOT copy inputs on replay) AND the eager-fallback NONE path (the in-place
+                # compiled forward still reads the buffers). So write the candidate inputs into
+                # self.input_ids/self.positions and pass the persistent slices. Passing fresh args on
+                # the NONE path left requests after the first decoding against STALE buffer state --
+                # the R>1 compiled-batched corruption (req0 correct, reqs 1+ garbled). Validated:
+                # this fix gives EOS 13/16 == eager, vs 1/16 broken. Pad rows [n:n_pad] get token/pos 0
+                # (discarded; attention reads the pad sink). _update_states does not touch these
+                # buffers, so VFD owns them for this step.
                 self.input_ids.gpu[:n].copy_(toks)         # int32 buffer <- long ids (cast)
                 self.input_ids.gpu[n:n_pad].zero_()
                 self.positions[:n].copy_(positions)
@@ -672,11 +689,12 @@ class VFDModelRunner(GPUModelRunner):
                 in_ids = self.input_ids.gpu[:n_pad]
                 in_pos = self.positions[:n_pad]
             else:
+                # enforce_eager: the model reads the passed args directly (no compiled buffer read).
                 in_ids, in_pos = toks, positions
             with set_forward_context(attn_metadata, self.vllm_config, num_tokens=n_pad,
                                      cudagraph_runtime_mode=cg_mode,
                                      batch_descriptor=batch_desc,
-                                     slot_mapping=slot_mapping_by_layer), self._phase("forward"):
+                                     slot_mapping=slot_mapping_by_layer):
                 hs = self._model_forward(input_ids=in_ids, positions=in_pos)    # [n_pad, H]
             if not isinstance(hs, torch.Tensor):                                # some models wrap
                 hs = hs[0] if isinstance(hs, (tuple, list)) else hs.last_hidden_state
@@ -787,11 +805,12 @@ class VFDModelRunner(GPUModelRunner):
             "real_tail_blk": torch.tensor(layout["real_tail_blk"], device=device, dtype=torch.long),
             "offset": torch.tensor(layout["offset"], device=device, dtype=torch.long),
             "needs_copy": torch.tensor(layout["needs_copy"], device=device, dtype=torch.bool),
+            # Per-REQUEST (winner-independent: all K candidates of a request share the tail block)
+            # CPU copies so the block-boundary deferral check in _commit_winner_kv stays SYNC-FREE
+            # (no per-step D2H). real_tail_blk/offset are identical across a request's K rows -> [::K].
+            "rtb_cpu": list(layout["real_tail_blk"][::K]),
+            "off_cpu": list(layout["offset"][::K]),
         }
-        self._dbg("candidate meta: positions", seq_lens_per_req,
-                  "tail_blocks", layout["real_tail_blk"][::K] if K else layout["real_tail_blk"],
-                  "offsets", layout["offset"][::K] if K else layout["offset"],
-                  "block_size", block_size)
         return cm, scratch_idx, plan
 
     def _build_per_layer_metadata(self, cm):
@@ -802,7 +821,8 @@ class VFDModelRunner(GPUModelRunner):
         for kv_gid, groups in enumerate(self.attn_groups):
             for group in groups:
                 builder = group.get_metadata_builder()
-                md = builder.build(common_prefix_len=0, common_attn_metadata=cm)
+                md = builder.build(common_prefix_len=0, common_attn_metadata=cm,
+                                   fast_build=self._candidate_fast_build)
                 for layer_name in group.layer_names:
                     attn_metadata[layer_name] = md
         return attn_metadata
@@ -831,8 +851,7 @@ class VFDModelRunner(GPUModelRunner):
         """Validate the FlashAttention (2, num_blocks, block_size, num_kv_heads, head_size)
         layout and return the raw tensor. Callers index the BLOCK dim while keeping dim 0
         (the k/v axis), so one op moves both key and value -- half the kernel launches of
-        copying key_cache and value_cache separately (the KV surgery is launch-bound; see
-        VFD_PROFILE)."""
+        copying key_cache and value_cache separately (the KV surgery is launch-bound)."""
         block_size = self.cache_config.block_size
         if not (isinstance(kv_cache, torch.Tensor) and kv_cache.dim() == 5
                 and kv_cache.shape[0] == 2):
@@ -848,6 +867,13 @@ class VFDModelRunner(GPUModelRunner):
                 f"({block_size}); VFD slot/block math assumes they match (single-group)."
             )
         return kv_cache
+
+    def _kv_tensors(self):
+        """Yield each layer's validated FlashAttention KV tensor, in layer order. The single
+        prelude every per-layer KV-surgery loop shares (copy/commit/flush); sync-free, so it is
+        safe inside a captured `run()` closure."""
+        for kv_cache in self.kv_caches:
+            yield self._kv_validate(kv_cache)
 
     def _run_captured(self, key, run) -> None:
         """Manual mid-decode cudagraph capture of the in-place KV scatter -- VALIDATED on A100
@@ -904,8 +930,7 @@ class VFDModelRunner(GPUModelRunner):
 
             def run():
                 s_, d_ = self._cp_src[:nrows], self._cp_dst[:nrows]
-                for kv_cache in self.kv_caches:
-                    kv = self._kv_validate(kv_cache)
+                for kv in self._kv_tensors():
                     kv[:, d_] = kv[:, s_]
             self._run_captured(("copy", nrows), run)
             return
@@ -915,8 +940,7 @@ class VFDModelRunner(GPUModelRunner):
             return
         src = plan["real_tail_blk"][mask]        # [m] real tail blocks
         dst = plan["scratch_blk"][mask]          # [m] scratch blocks
-        for kv_cache in self.kv_caches:
-            kv = self._kv_validate(kv_cache)
+        for kv in self._kv_tensors():
             kv[:, dst] = kv[:, src]              # whole-block copy, key+value in one op
 
     # ============================================================== #
@@ -926,33 +950,31 @@ class VFDModelRunner(GPUModelRunner):
     def _select(self, active_req_ids: list[str], h_cand: torch.Tensor,
                 scratch_idx, plan) -> dict[str, int]:
         R, K, H = h_cand.shape
-        with self._phase("score"):
-            p_unsafe = self.value_head.p(h_cand.reshape(R * K, H)).reshape(R, K)  # [R,K]
-            thresholds = torch.tensor(
-                [self._threshold(r) for r in active_req_ids],
-                device=p_unsafe.device,
-                dtype=p_unsafe.dtype,
-            )
-            logp = (
-                torch.stack([self._pending_logp[r] for r in active_req_ids])
-                if self.args_fallback
-                else None
-            )
-            winner_col = select_vfd(                          # [R] long; first-safe / argmin / ARGS
-                p_unsafe,
-                thresholds,
-                args_fallback=self.args_fallback,
-                prob_weight=self.prob_weight,
-                logp=logp,
-            )
-            # Diagnostic (sync-free, device-accumulated): how often NO candidate is "safe", so
-            # selection falls to argmin(p_unsafe) -- which on harmful prompts chains the head's
-            # "safest" off-distribution token -> degeneration. High argmin-rate => threshold too
-            # strict for the prompt distribution (needs calibration), not a candidate-count issue.
-            no_safe = (p_unsafe < thresholds.view(-1, 1)).any(dim=1).logical_not().sum()
-            self._argmin_accum += no_safe
-            self._select_accum += R
-
+        p_unsafe = self.value_head.p(h_cand.reshape(R * K, H)).reshape(R, K)  # [R,K]
+        thresholds = torch.tensor(
+            [self._threshold(r) for r in active_req_ids],
+            device=p_unsafe.device,
+            dtype=p_unsafe.dtype,
+        )
+        logp = (
+            torch.stack([self._pending_logp[r] for r in active_req_ids])
+            if self.args_fallback
+            else None
+        )
+        winner_col = select_vfd(                          # [R] long; first-safe / argmin / ARGS
+            p_unsafe,
+            thresholds,
+            args_fallback=self.args_fallback,
+            prob_weight=self.prob_weight,
+            logp=logp,
+        )
+        # Diagnostic (sync-free, device-accumulated): how often NO candidate is "safe", so
+        # selection falls to argmin(p_unsafe) -- which on harmful prompts chains the head's
+        # "safest" off-distribution token -> degeneration. High argmin-rate => threshold too
+        # strict for the prompt distribution (needs calibration), not a candidate-count issue.
+        no_safe = (p_unsafe < thresholds.view(-1, 1)).any(dim=1).logical_not().sum()
+        self._argmin_accum += no_safe
+        self._select_accum += R
         # Gather winner token + winner hidden ON DEVICE, then ONE .tolist() D2H for the tokens
         # (the engine output needs py ints) -- vs the old 2R per-row int(winner_col[i]) /
         # int(pending_tok[r][col]) host syncs. winner_hidden stays on device (no sync).
@@ -964,8 +986,8 @@ class VFDModelRunner(GPUModelRunner):
         winner_hidden = {r: wh[i] for i, r in enumerate(active_req_ids)}
 
         # DIAGNOSTIC (off unless VFD_DUMP_HIDDEN set): record the EXACT post-norm hidden the value
-        # head was scored on for each committed token, so it can be compared to the training-time
-        # (pooling) feature for the same tokens -- answers "train feature == inference feature?".
+        # head was scored on for each committed token, so decode-matched training features can be
+        # captured (scripts/decode_extract.py) -- the tensor the head is scored on at inference.
         if self._dump_hidden is not None:
             for i, r in enumerate(active_req_ids):
                 self._dump_hidden.setdefault(r, []).append(
@@ -974,14 +996,12 @@ class VFDModelRunner(GPUModelRunner):
         # Commit the winner's KV into each request's real tail slot (pure in-cache copy,
         # NO second forward). Load-bearing for the single-forward scheme: without it the
         # next candidate forward would see a prefix missing this token's KV.
-        with self._phase("commit"):
-            self._commit_winner_kv(active_req_ids, winner_col, plan)
+        self._commit_winner_kv(active_req_ids, winner_col, plan)
         self._scratch.free(scratch_idx)        # candidate KV consumed; release the blocks
 
         for r in active_req_ids:               # this step filled _next_pos[r]; advance by one
             self._next_pos[r] += 1
-        with self._phase("seed"):
-            self._seed_candidates(winner_hidden)   # candidates for the NEXT step
+        self._seed_candidates(winner_hidden)   # candidates for the NEXT step
         return winners
 
     # -------------------------------------------------------------- #
@@ -1010,19 +1030,41 @@ class VFDModelRunner(GPUModelRunner):
         scratch_blk = plan["scratch_blk"][rows]    # [R]
         real_blk = plan["real_tail_blk"][rows]     # [R]
         offset = plan["offset"][rows]              # [R]
-        # VALIDATED on A100: the winner's real target block IS allocated the step it's
-        # generated (same-step commit; the guard below never fired across the greedy/multi-step
-        # runs). Kept as an invariant guard: if a future backend/scheduler allocated it a step
-        # late, this surfaces loudly instead of corrupting block 0 (would need deferred commit).
+        # BLOCK-BOUNDARY DEFERRAL: a winner whose real tail block is still 0 (padding) is the first
+        # token of a fresh block the scheduler allocates one step LATE (measured on Mistral-7B: the
+        # block is absent at pos 16/32/48... and present the next step). Committing now would copy
+        # into physical block 0 -> corrupts position 0 and loses the new token's K/V -> cache drift
+        # -> degeneration. Retain the winner's K/V and flush it once the block exists (next step).
+        # SYNC-FREE boundary detection. real_tail_blk is per-REQUEST and winner-independent (all K
+        # candidates of a request share the tail block), and it was built from the CPU block-table
+        # mirror -- so read it from CPU (plan["rtb_cpu"]) instead of a per-step bool(GPU.any()) D2H.
+        # (The old GPU .any() ran every commit and serialized the CPU<->GPU pipeline -> ~3-5x slower.)
+        rtb_cpu = plan["rtb_cpu"]                   # per-request real tail block, on CPU
+        unalloc = [b == 0 for b in rtb_cpu]         # pure CPU -> NO per-step sync
+        if any(unalloc):                            # rare (block boundaries only)
+            keep = [not u for u in unalloc]
+            sb, of = scratch_blk.tolist(), plan["off_cpu"]   # sb: winner scratch (rare sync); of: CPU
+            for i in range(R):
+                if not keep[i]:
+                    r = active_req_ids[i]
+                    tail_idx = self._next_pos[r] // self.cache_config.block_size
+                    self._deferred[r] = (tail_idx, of[i],
+                                         [kv[:, sb[i], of[i]].clone() for kv in self._kv_tensors()])
+            sel = torch.tensor([i for i in range(R) if keep[i]], device=device, dtype=torch.long)
+            scratch_blk, real_blk, offset = scratch_blk[sel], real_blk[sel], offset[sel]
+            rtb_cpu = [rtb_cpu[i] for i in range(len(keep)) if keep[i]]
+            R = int(sel.numel())
+            if R == 0:
+                return
+        # VALIDATED on A100: the winner's real target block IS allocated the step it's generated
+        # (same-step commit; this guard never fired). Kept as an invariant guard -- now a pure-CPU
+        # check (rtb_cpu) so it costs no sync; surfaces loudly if a scheduler ever allocates late.
         base = self._scratch_blocks[0] if self._scratch_blocks else None
-        if self._debug:
-            self._dbg("commit:", "real_blk", real_blk.tolist(), "scratch_blk", scratch_blk.tolist(),
-                      "offset", offset.tolist(), "scratch_base", base)
-        if base is not None and bool((real_blk >= base).any()):   # one .any() sync; outside capture
+        if base is not None and any(b >= base for b in rtb_cpu):
             raise RuntimeError(
                 "VFD commit target points into the scratch range -- winner's real block "
                 "was not allocated by the scheduler this step (commit-timing: deferral "
-                f"needed). real_blk={real_blk.tolist()} scratch_base={base}"
+                f"needed). real_blk={rtb_cpu} scratch_base={base}"
             )
         if self._capture_kv and R <= self._kv_capture_max_rows:
             self._cm_real[:R].copy_(real_blk)
@@ -1031,14 +1073,45 @@ class VFDModelRunner(GPUModelRunner):
 
             def run():
                 r_, s_, o_ = self._cm_real[:R], self._cm_scratch[:R], self._cm_off[:R]
-                for kv_cache in self.kv_caches:
-                    kv = self._kv_validate(kv_cache)
+                for kv in self._kv_tensors():
                     kv[:, r_, o_] = kv[:, s_, o_]
             self._run_captured(("commit", R), run)
             return
-        for kv_cache in self.kv_caches:
-            kv = self._kv_validate(kv_cache)
+        for kv in self._kv_tensors():
             kv[:, real_blk, offset] = kv[:, scratch_blk, offset]   # key+value in one op
+
+    @torch.inference_mode()
+    def _flush_deferred(self, active_req_ids) -> None:
+        """Write any block-boundary-deferred winner K/V into its real block, now that the scheduler
+        has allocated it. Called at the start of a step BEFORE _copy_real_tail_to_scratch, so the
+        block holds the boundary token when the next candidate forward copies the tail block."""
+        if not self._deferred:
+            return
+        active = set(active_req_ids)
+        bt = self.input_batch.block_table[0].get_cpu_tensor()
+        for r in list(self._deferred):
+            if r not in active:
+                self._deferred.pop(r, None)
+                continue
+            tail_idx, off, bufs = self._deferred[r]
+            ridx = self.input_batch.req_id_to_index[r]
+            blk = int(bt[ridx, tail_idx]) if tail_idx < bt.shape[1] else 0
+            if blk == 0:                       # still not allocated -- keep waiting (shouldn't happen)
+                continue
+            for kv, buf in zip(self._kv_tensors(), bufs):
+                kv[:, blk, off] = buf
+            self._deferred.pop(r, None)
+
+    def _update_states(self, scheduler_output):
+        """After vLLM refreshes input_batch (block tables now reflect any block the scheduler just
+        allocated), flush block-boundary-deferred winner K/V. This runs INSIDE super().execute_model
+        on mixed/bootstrap steps too, so the deferred token's K/V is in the real cache BEFORE the base
+        forward reads it -- without this, a mixed step (a new request joining a batch mid-ramp) reads
+        the still-missing boundary position and corrupts the cache (the R>1 batched residual)."""
+        ret = super()._update_states(scheduler_output)
+        if self.vfd_enabled and self._deferred:
+            self._flush_deferred(self._active_req_ids())
+        return ret
 
     # ----------------------- lifecycle / output -------------------- #
     def _active_req_ids(self) -> list[str]:
@@ -1050,7 +1123,7 @@ class VFDModelRunner(GPUModelRunner):
         _pending_tok / _pending_logp don't leak across the run."""
         finished = set(getattr(scheduler_output, "finished_req_ids", None) or [])
         live = set(self._active_req_ids())
-        for d in (self._pending_tok, self._pending_logp, self._next_pos):
+        for d in (self._pending_tok, self._pending_logp, self._next_pos, self._deferred):
             for r in [r for r in d if r in finished or r not in live]:
                 d.pop(r, None)
 
@@ -1065,7 +1138,15 @@ class VFDModelRunner(GPUModelRunner):
             return
         h = st.sample_hidden_states                       # [num_reqs, H], post-norm
         ids = self._active_req_ids()
-        hidden_by_req = {r: h[i] for i, r in enumerate(ids) if r in req_ids}
+        # Only seed requests that are NOT already seeded. An ONGOING decoder that hits this
+        # not-steady path mid-generation (because a NEW request joined and prefilled in the same
+        # step) still holds the correct candidates seeded from its own last _select. Re-seeding it
+        # here from sample_hidden_states is (a) redundant and (b) WRONG: with a prefill sharing the
+        # batch the row<->request 1:1 mapping no longer holds, so h[i] can be a different request's
+        # (or an off-by-one) hidden -> the ongoing decoder re-emits its previous token (the R>1
+        # stutter). Skip already-pending requests; only seed the genuinely new ones.
+        hidden_by_req = {r: h[i] for i, r in enumerate(ids)
+                         if r in req_ids and r not in self._pending_tok}
         self._seed_candidates(hidden_by_req)
 
     def _build_output(self, active_req_ids: list[str], winners: dict[str, int]):

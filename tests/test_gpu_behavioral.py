@@ -108,6 +108,11 @@ def _release_vllm_engines():
         reg.clear()                  # drop strong refs FIRST, so the objects can be deallocated...
         gc.collect()                 # ...then collect (dealloc the model/KV tensors)...
         torch.cuda.empty_cache()     # ...then return the freed blocks to the driver (order matters)
+        # NOTE: vLLM V1 does NOT fully release the KV-cache reservation in-process (it is allocated
+        # outside torch's caching allocator, so empty_cache can't reclaim it). Running the whole GPU
+        # suite in ONE process therefore accumulates engines and OOMs later tests at init ("Free
+        # memory < desired"). Run each GPU test in its OWN process -- `make gpu-test` does this; this
+        # fixture only makes base->vfd frees WITHIN a single test cheaper.
 
 
 def _force_const_head(runner, p_value: float):
@@ -456,8 +461,10 @@ def test_vfd_compiled_matches_base_and_replays():
     (gpu_model_runner._dummy_run: num_reqs=min(max_num_seqs,N) with 1 tok/req). At max_num_seqs=1
     the K=3 graph can't capture, so the compile path correctly falls back to eager (covered by
     test_vfd_compile_single_stream_capacity1_falls_back_to_eager). The speedup needs
-    max_num_seqs>=K, which is also the regime where >1 CONCURRENT request would corrupt -- hence
-    the single_stream opt-in (this test drives ONE request, so R=1 actual; correctness holds).
+    max_num_seqs>=K. This test specifically validates the SINGLE-REQUEST capture path: it drives
+    ONE request (R=1 actual) under the single_stream opt-in, so greedy stays token-identical to
+    base and the capture is exercised without concurrency. (Compiled BATCHED R>1 is now correct on
+    its own -- covered by test_vfd_compile_batched_captures_and_matches.)
     Base also runs with cudagraphs so the token reference matches the compiled regime."""
     from vllm import LLM, SamplingParams
 
@@ -534,18 +541,60 @@ def test_vfd_compile_single_stream_capacity1_falls_back_to_eager():
 
 
 @requires_gpu_model
-def test_vfd_compile_batched_guard_raises():
-    """V1 SAFETY CONTRACT: the compile/cudagraph path is single-stream only. Configuring it with
-    batching (enforce_eager=False AND max_num_seqs>1) must FAIL FAST in __init__ -- not silently
-    corrupt requests after the first. Batched serving must use enforce_eager=True."""
-    import pytest as _pytest
-    from vllm import LLM
-    with _pytest.raises(Exception) as ei:
-        LLM(model=_MODEL, worker_cls="value_steer.worker.ValueSteerWorker",
-            additional_config={"vfd": {"enabled": True, "threshold": 2.0, "num_candidates": 4,
-                                       "strict": True}},
-            async_scheduling=False, gpu_memory_utilization=0.06, max_num_seqs=2)  # compile + batch
-    assert "single-request" in str(ei.value).lower() or "enforce_eager" in str(ei.value).lower()
+def test_vfd_compile_batched_matches_base():
+    """Compiled batched decode (enforce_eager=False AND max_num_seqs>1, R>1 concurrent) is now
+    SUPPORTED (previously guarded off). Two fixes make it correct: fast_build for the candidate FA
+    metadata build (sidesteps FA3's persistent AOT scheduler_metadata buffer), and populating the
+    runner's persistent input_ids/positions buffers on the eager-fallback NONE path (the in-place-
+    compiled model reads those buffers, not the passed args). Regression guard for the pre-fix
+    corruption where "requests after the first decode request 0's content": each request's
+    compiled-batched greedy output must match ITS OWN base greedy, and (for reqs 1+) match its own
+    base far better than request 0's. Uses agreement thresholds, not token identity, because the
+    inductor path flips greedy near-ties vs eager (benign float reduction-order differences)."""
+    from vllm import LLM, SamplingParams
+
+    K = 4
+    prompts = ["The capital of France is",
+               "Once upon a time, in a small village near the",
+               "2 + 2 ="]
+    sp = SamplingParams(max_tokens=16, temperature=0.0)                    # greedy
+
+    def vfd_batched(eager):
+        llm = LLM(
+            model=_MODEL,
+            worker_cls="value_steer.worker.ValueSteerWorker",
+            additional_config={"vfd": {"enabled": True, "threshold": 2.0,   # sigmoid<2 -> never fires
+                                       "num_candidates": K, "strict": True}},
+            enforce_eager=eager,
+            async_scheduling=False,
+            gpu_memory_utilization=0.06,
+            max_num_seqs=8,                                                # BATCHED (R>1)
+        )
+        out = [list(o.outputs[0].token_ids) for o in llm.generate(prompts, sp)]
+        _free_engine(llm)
+        del llm
+        return out
+
+    # EAGER-batched VFD is the validated-correct per-request reference. COMPILED-batched must, per
+    # request, most resemble ITS OWN eager output -- not another request's. Absolute token agreement
+    # is compared by argmax (not a threshold) so benign compiled-vs-eager float tie-break flips (which
+    # a tiny model compounds fast) don't matter; the pre-fix corruption made reqs 1+ track request 0,
+    # which flips the argmax to 0. Also assert the outputs are DISTINCT (not collapsed together).
+    ref = vfd_batched(eager=True)
+    comp = vfd_batched(eager=False)
+
+    def agree(a, b):
+        return sum(1 for x, y in zip(a, b) if x == y) / max(len(a), 1)
+
+    assert len({tuple(v) for v in comp}) == len(comp), \
+        f"compiled-batched outputs collapsed together (corruption):\n{comp}"
+    for i in range(len(prompts)):
+        sims = [agree(comp[i], ref[j]) for j in range(len(prompts))]
+        best = max(range(len(prompts)), key=lambda j: sims[j])
+        assert best == i, (
+            f"compiled-batched request {i} most resembles EAGER request {best} "
+            f"(sims={['%.2f' % s for s in sims]}) -- cross-request contamination:\n"
+            f" ref_i ={ref[i]}\n comp_i={comp[i]}")
 
 
 @requires_gpu_model
@@ -673,4 +722,160 @@ def test_vfd_hidden_matches_real_prefix_long_context():
     worst_rel = max(rel for _, _, rel in stats)
     print(f"[hidden-closeness] steps={len(stats)} min_cos={worst:.6f} max_rel_L2={worst_rel:.4e}")
     assert worst > 0.999, f"scratch-path hidden diverges from real-block decode (min cos {worst})"
+
+
+@requires_gpu_model
+def test_vfd_compile_batched_captures_and_matches():
+    """Compiled BATCHED decode (enforce_eager=False, R>1 concurrent) in the regime where the
+    n=R*K candidate forward is CUDAGRAPH-CAPTURED (not the inductor-eager NONE fallback). vLLM
+    captures a uniform-decode graph of N rows only when max_num_seqs>=N, so with K=4 and R up to 4
+    we size max_num_seqs=32 (>= R*K) to force capture -- distinct from
+    test_vfd_compile_batched_matches_base (max_num_seqs=8, where R*K exceeds the ceiling and runs
+    cg_mode=NONE). Asserts BOTH halves of "the feature FIRES":
+      * the capture actually fired at R>1: runner._vfd_replay_fired > 0;
+      * per-request correctness by the argmax-own-reference method: each compiled request most
+        resembles ITS OWN eager-batched reference (same config but enforce_eager=True), and the
+        outputs are DISTINCT (not collapsed). Compared by argmax, NOT token identity, because the
+        compiled/cudagraph path flips greedy near-ties vs eager by float reduction-order."""
+    from vllm import LLM, SamplingParams
+
+    K = 4
+    prompts = ["The capital of France is",
+               "Once upon a time, in a small village",
+               "2 + 2 =",
+               "Roses are red, violets are"]
+    sp = SamplingParams(max_tokens=16, temperature=0.0)                    # greedy
+
+    def vfd_batched(eager):
+        llm = LLM(
+            model=_MODEL,
+            worker_cls="value_steer.worker.ValueSteerWorker",
+            additional_config={"vfd": {"enabled": True, "threshold": 2.0,   # sigmoid<2 -> never fires
+                                       "num_candidates": K, "strict": True}},
+            enforce_eager=eager,
+            async_scheduling=False,
+            gpu_memory_utilization=0.06,
+            max_num_seqs=32,                                               # >= R*K so R>1 graph CAPTURES
+        )
+        runner = _get_runner(llm)
+        if not eager:
+            assert runner._vfd_compile_ok, "model uses mrope/xdrope; compile path falls back to eager"
+        out = [list(o.outputs[0].token_ids) for o in llm.generate(prompts, sp)]
+        replay = runner._vfd_replay_fired
+        _free_engine(llm)
+        del llm
+        return out, replay
+
+    ref, _ = vfd_batched(eager=True)
+    comp, replay = vfd_batched(eager=False)
+
+    assert replay > 0, (
+        "VFD never replayed a cudagraph at R>1 (ran eager/inductor) -- the R*K capture did not "
+        f"engage; replay_fired={replay}"
+    )
+
+    def agree(a, b):
+        return sum(1 for x, y in zip(a, b) if x == y) / max(len(a), 1)
+
+    assert len({tuple(v) for v in comp}) == len(comp), \
+        f"compiled-batched outputs collapsed together (corruption):\n{comp}"
+    for i in range(len(prompts)):
+        sims = [agree(comp[i], ref[j]) for j in range(len(prompts))]
+        best = max(range(len(prompts)), key=lambda j: sims[j])
+        assert best == i, (
+            f"compiled-batched request {i} most resembles EAGER request {best} "
+            f"(sims={['%.2f' % s for s in sims]}) -- cross-request contamination:\n"
+            f" ref_i ={ref[i]}\n comp_i={comp[i]}")
+
+
+@requires_gpu_model
+def test_vfd_batched_deferral_crosses_block_boundary():
+    """The block-boundary "deferral" under R>1: when a winner's new token starts a FRESH KV block
+    (generated position 16, 32, ... at block_size 16), it is held until the scheduler allocates
+    that block. This load-bearing path only fires when a GENERATED token crosses a block boundary,
+    so it needs max_tokens>block_size; today it's only exercised single-stream. Here: eager, R>1
+    concurrent, forced greedy, threshold=2.0 (sigmoid<2 -> VFD inert == base), max_tokens=40 with
+    ignore_eos=True so generation crosses >=2 block boundaries without stopping early. Each
+    request's VFD greedy output must equal ITS base greedy output."""
+    from vllm import LLM, SamplingParams
+
+    K = 4
+    prompts = ["The capital of France is",
+               "Once upon a time, in a small village near the",
+               "2 + 2 ="]
+    sp = SamplingParams(max_tokens=40, temperature=0.0, ignore_eos=True)   # crosses >=2 block bounds
+
+    base = LLM(model=_MODEL, enforce_eager=True, async_scheduling=False,
+               gpu_memory_utilization=0.06)
+    base_out = [list(o.outputs[0].token_ids) for o in base.generate(prompts, sp)]
+    _free_engine(base)
+    del base
+
+    llm = LLM(
+        model=_MODEL,
+        worker_cls="value_steer.worker.ValueSteerWorker",
+        additional_config={"vfd": {"enabled": True, "threshold": 2.0, "num_candidates": K,
+                                   "strict": True}},
+        enforce_eager=True,
+        async_scheduling=False,
+        gpu_memory_utilization=0.06,
+        max_num_seqs=8,
+    )
+    vfd_out = [list(o.outputs[0].token_ids) for o in llm.generate(prompts, sp)]
+
+    for i, (b, v) in enumerate(zip(base_out, vfd_out)):
+        assert v == b, f"request {i} VFD greedy != base greedy (block-boundary deferral):\n base={b}\n vfd ={v}"
+
+
+@requires_gpu_model
+def test_vfd_compile_mixed_staggered():
+    """Compiled (enforce_eager=False) R>1 with prompts of DIFFERENT lengths: staggered prefill
+    completion forces MIXED prefill+decode steps under continuous batching, exercising the
+    slot-sink + candidate seeding + persist-buffer interaction on the compile path. Correctness by
+    the argmax-own-reference method: each compiled request most resembles ITS OWN eager-batched
+    reference (same prompts/config but enforce_eager=True), and outputs are DISTINCT. Compared by
+    argmax, NOT token identity, because the compiled path flips greedy near-ties by float
+    reduction-order."""
+    from vllm import LLM, SamplingParams
+
+    K = 4
+    prompts = ["The capital of France is",
+               "Once upon a time, in a small village near the",
+               "2 + 2 ="]
+    sp = SamplingParams(max_tokens=16, temperature=0.0)                    # greedy
+
+    def vfd_batched(eager):
+        llm = LLM(
+            model=_MODEL,
+            worker_cls="value_steer.worker.ValueSteerWorker",
+            additional_config={"vfd": {"enabled": True, "threshold": 2.0,   # sigmoid<2 -> never fires
+                                       "num_candidates": K, "strict": True}},
+            enforce_eager=eager,
+            async_scheduling=False,
+            gpu_memory_utilization=0.06,
+            max_num_seqs=8,                                                # BATCHED (R>1), staggered
+        )
+        runner = _get_runner(llm)
+        if not eager:
+            assert runner._vfd_compile_ok, "model uses mrope/xdrope; compile path falls back to eager"
+        out = [list(o.outputs[0].token_ids) for o in llm.generate(prompts, sp)]
+        _free_engine(llm)
+        del llm
+        return out
+
+    ref = vfd_batched(eager=True)
+    comp = vfd_batched(eager=False)
+
+    def agree(a, b):
+        return sum(1 for x, y in zip(a, b) if x == y) / max(len(a), 1)
+
+    assert len({tuple(v) for v in comp}) == len(comp), \
+        f"compiled mixed-staggered outputs collapsed together (corruption):\n{comp}"
+    for i in range(len(prompts)):
+        sims = [agree(comp[i], ref[j]) for j in range(len(prompts))]
+        best = max(range(len(prompts)), key=lambda j: sims[j])
+        assert best == i, (
+            f"compiled mixed-staggered request {i} most resembles EAGER request {best} "
+            f"(sims={['%.2f' % s for s in sims]}) -- cross-request contamination:\n"
+            f" ref_i ={ref[i]}\n comp_i={comp[i]}")
 

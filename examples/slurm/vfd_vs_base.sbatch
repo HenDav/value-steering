@@ -5,10 +5,10 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --output=vfd_vs_base.%j.out
-# Attribute the VFD-vs-base gap: wall tok/s for base vs VFD(K=1) vs VFD(K=4), PLUS the per-phase
-# breakdown (VFD_PROFILE) for the VFD runs. K=1 forward is base-shaped (1 row), so VFD(K=1)-base
-# = pure orchestration overhead, and K4-K1 = the K-scaling cost. cudagraphs ON for all (the
-# realistic regime). Submit: sbatch --partition=llm,normal,msc examples/slurm/vfd_vs_base.sbatch
+# Attribute the VFD-vs-base gap: wall tok/s for base vs VFD(K=1) vs VFD(K=4). K=1 forward is
+# base-shaped (1 row), so VFD(K=1)-base = pure orchestration overhead, and K4-K1 = the K-scaling
+# cost. cudagraphs ON for all (the realistic regime).
+# Submit: sbatch --partition=llm,normal,msc examples/slurm/vfd_vs_base.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh
@@ -23,8 +23,8 @@ export VALUE_STEER_VHEAD=${VALUE_STEER_VHEAD:?set VALUE_STEER_VHEAD to a trained
 export VALUE_STEER_UTIL=0.45 SPEED_TOKENS=256
 echo "=== base (cudagraph) wall tok/s ==="
 python scripts/real_model_validate.py speed_base || echo "BASE FAILED"
-echo "=== VFD K=1 (cudagraph) wall tok/s + per-phase ==="
-VFD_PROFILE=1 VFD_K=1 python scripts/real_model_validate.py speed_vfd || echo "VFD1 FAILED"
-echo "=== VFD K=4 (cudagraph) wall tok/s + per-phase ==="
-VFD_PROFILE=1 VFD_K=4 python scripts/real_model_validate.py speed_vfd || echo "VFD4 FAILED"
+echo "=== VFD K=1 (cudagraph) wall tok/s ==="
+VFD_K=1 python scripts/real_model_validate.py speed_vfd || echo "VFD1 FAILED"
+echo "=== VFD K=4 (cudagraph) wall tok/s ==="
+VFD_K=4 python scripts/real_model_validate.py speed_vfd || echo "VFD4 FAILED"
 echo "=== DONE job ${SLURM_JOB_ID} ==="
