@@ -6,11 +6,47 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-10
+
+### Added
+- **Decode-matched conformal calibration.** `scripts/decode_extract.py --phase calibrate` scores the
+  head over each labeled example's captured *decode* trajectory and calls `posterior_threshold` at
+  each α, writing the ĉ(α) **curve** into the head's sidecar with the guarantee
+  `P(intervene | safe) ≤ α`. New generation knobs: `--single-stream`, `--disable-hybrid-kv-cache`
+  and `--force-arch` (mixed-attention / multimodal backbones), and `--strip-thinking` (judge the
+  answer, not a reasoning model's chain-of-thought).
+- A bit-exact VFD behavior-preservation gate (`examples/research/refactor_reftest.{py,sbatch}`):
+  save a token-id reference on a baseline, then `REFTEST_MODE=check` after a refactor.
+
 ### Changed
 - Helpfulness is now judged by the paper's Llama-3.1-8B **helpful/unhelpful compliance judge**
   (`build_helpfulness_judge_messages`, replicated verbatim from `llm_safety`), reported alongside the
   unsafe rate by `safety_eval.py judge`. This replaces the Ray2333 reward model as the helpfulness
   metric (Ray2333 remains only as an independent harmlessness check). Adds a `helpfulness` verifier.
+- The published head artifact is now **six per-backbone safety heads**
+  ([`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head):
+  `mistral/` + `llama/` × hh-rlhf / beavertails / pku_saferlhf), each carrying a decode-matched
+  ĉ(α) curve in its sidecar instead of a single threshold.
+
+### Removed
+- The `VFD_PROFILE` / `VFD_DEBUG` profiling scaffolding (`scripts/vfd_profile.py`, the profiling
+  sbatches, and the runner hooks) — it measured the pre-rework single-stream decode path.
+
+### Fixed
+- **Batched / continuous-batching VFD decoding is now correct** under eager serving, so
+  `enforce_eager=True` is a supported path for **all batch sizes**, not just single-request. Two
+  fixes make the K-candidate KV surgery robust when multiple requests decode concurrently: a
+  block-boundary commit **deferral** (a winner whose new token starts a fresh KV block is held until
+  the scheduler allocates that block, instead of corrupting block 0) and a **slot-sink** for
+  in-flight decoders (a base prefill/mixed step no longer overwrites an already-decoding request's
+  KV slot).
+- **Compiled batched VFD decoding is now correct for all batch sizes**, so the
+  CUDA-graph/`torch.compile` path is no longer single-stream only. Two fixes make the compiled path
+  robust under concurrent R>1 decode: `fast_build` for the attention-metadata builder (fixes the
+  FlashAttention-metadata crash on the candidate forward) and populating the compiled model's
+  persistent input buffers before each captured step. **Batched cudagraph capture is enabled** and
+  runs faster than eager (~+10–26% tok/s measured across R=1–16); capturing the R>1 candidate graph
+  needs `max_num_seqs >= R*K`, above which it falls back to a still-compiled path.
 
 ## [0.1.1]
 
@@ -79,6 +115,7 @@ Initial public release.
 - The VFD CUDA-graph/compile path is **single-stream only**; eager (`enforce_eager=True`) is the
   correct serving default for all batch sizes.
 
-[Unreleased]: https://github.com/HenDav/value-steering/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/HenDav/value-steering/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/HenDav/value-steering/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/HenDav/value-steering/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/HenDav/value-steering/releases/tag/v0.1.0
