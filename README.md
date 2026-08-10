@@ -32,10 +32,13 @@ before widening the pin (see *Compatibility*). The pure modules (value head, ste
 ops, calibration, probe training) import **without** vLLM, so training/calibration boxes
 need only the core install.
 
-A pre-trained safety value head (Mistral-7B-Instruct-v0.3 backbone, hh-rlhf labels via a
-Llama-3.1 judge) is published at
-[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head) —
-see its model card for the feature contract and a ready-to-use config snippet.
+Pre-trained safety value heads are published at
+[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head),
+laid out per backbone: **Mistral-7B-Instruct-v0.3** and **Llama-3.1-8B-Instruct** × **hh-rlhf /
+beavertails / pku_saferlhf** (e.g. `mistral/hh-rlhf.bin`, `llama/pku_saferlhf.bin`), labeled by a
+Llama-3.1 judge. Each sidecar carries the feature contract and a **decode-matched conformal
+threshold curve** ĉ(α) — pick the α (false-intervention budget) that fits your risk tolerance
+rather than a single baked-in threshold. See the model card.
 
 ## Use
 
@@ -45,14 +48,14 @@ Abstention:
 ```bash
 vllm serve <model> \
   --worker-cls value_steer.worker.ValueSteerWorker \
-  --additional-config '{"abstain": {"value_head_path": "value_head.bin", "threshold": 0.5}}'
+  --additional-config '{"abstain": {"value_head_path": "mistral/hh-rlhf.bin", "threshold": 0.5}}'
 ```
 
 Value-filtered decoding (run with speculative decoding OFF — VFD owns the decode forward):
 ```bash
 vllm serve <model> \
   --worker-cls value_steer.worker.ValueSteerWorker \
-  --additional-config '{"vfd": {"value_head_path": "value_head.bin", "threshold": 0.3, "num_candidates": 8}}'
+  --additional-config '{"vfd": {"value_head_path": "mistral/hh-rlhf.bin", "threshold": 0.36, "num_candidates": 8}}'
 ```
 
 Per-request override via `SamplingParams.extra_args` (`abstain_threshold` / `vfd_threshold`).
@@ -82,9 +85,11 @@ from value_steer.calibration import martingale_threshold  # time-to-unsafe marti
 c = posterior_threshold(safe_labels, trajectories, tau=0.05)
 ```
 
-Given held-out `(label, per-step value trajectory)` pairs, this returns the threshold
-with a finite-sample bound on false interventions: `P_H0(max_t p_t ≥ c) ≤ tau`. That is
-the guarantee the threshold is supposed to carry — not a hand-tuned number.
+Given held-out `(label, per-step value trajectory)` pairs, this returns the threshold `ĉ(α)`
+(the `tau` argument **is** α) carrying a finite-sample conformal guarantee: **VFD intervenes on at
+most an α fraction of safe generations** — formally `P_H0(max_t p_t ≥ ĉ) ≤ α` with H0 = "the
+generation is safe". That is the guarantee the threshold carries — not a hand-tuned number. Lower α
+→ higher `ĉ` → fewer interventions.
 
 ## Compatibility
 
@@ -114,7 +119,7 @@ pytest -q                   # pure-logic suite (no GPU, no vLLM): ops, calibrati
 |---|---|
 | value head, steering ops, calibration, training | complete, CPU-tested |
 | abstention runner | complete vs pinned APIs; EOS-fires check is the GPU behavioral test |
-| VFD runner | complete and **GPU-validated** (A100, vLLM 0.19.1, Mistral-7B): single-forward K-candidate decode, end-to-end safer outputs under a Llama-3.1 judge; no silent gaps remain |
+| VFD runner | complete and **GPU-validated** (A100, vLLM 0.19.1, Mistral-7B): single-forward K-candidate decode, end-to-end safer outputs under a Llama-3.1 judge; no silent gaps remain. Compiled batched decode and batched cudagraph capture additionally validated on H100 |
 | `--worker-cls` entry point, packaging, compat harness, version registry | complete |
 
 The VFD candidate forward goes through `_model_forward` + the attention-metadata builder
@@ -129,13 +134,19 @@ v2's KV layout (compute capability ≥ 8.0). GPU behavioral tests live in
   against vLLM internals that shift across minor versions. The registry in
   `value_steer/validated_versions.json` is authoritative and warns at runtime for untested
   in-range versions — widen only after `value-steer-compat` passes on a GPU box.
-- **Serving default is eager.** The VFD CUDA-graph/compile path is **single-stream only** (it
-  corrupts concurrent requests under cudagraphs); `enforce_eager=True` is correct for all batch
-  sizes and is the serving default. The compile speedup is an explicit opt-in
-  (`vfd.single_stream=True` + one request at a time) for offline/benchmark use.
-- **VFD threshold.** The head steers around **threshold 0.3**; the conformal `posterior_threshold`
-  in a head's sidecar is *conservative* (bounds false interventions) and can sit higher — start at
-  0.3 and tune. See [docs/training-a-value-head.md](docs/training-a-value-head.md).
+- **Batched serving: both eager and compiled are correct for all batch sizes.**
+  `enforce_eager=True` (the serving default) is the simplest option and is correct for **all batch
+  sizes** — batched, concurrent VFD serving under continuous batching is a fully supported path. The
+  CUDA-graph/`torch.compile` path is now **also correct batched** and cudagraph-captures the
+  per-step candidate forward for a throughput gain over eager (measured ~+10–26% tok/s across
+  R=1–16). Capturing the R>1 candidate graph requires `max_num_seqs >= R*K` (K = candidates per
+  step); above that it falls back to a still-compiled path. `vfd.single_stream` no longer gates
+  correctness — it only sizes the scratch KV reserve.
+- **VFD threshold.** Each published head's sidecar carries a **decode-matched conformal ĉ(α) curve**,
+  not a single number: `ĉ(α)` is calibrated so VFD intervenes on **at most an α fraction of safe
+  generations** (`P(intervene | safe) ≤ α`). E.g. the Mistral hh-rlhf head is ~0.36 at α=0.45, rising
+  to ~0.75 at α=0.05 (lower α → fewer interventions). Pick the α that matches your risk tolerance. See
+  [docs/training-a-value-head.md](docs/training-a-value-head.md).
 
 ## Citation
 

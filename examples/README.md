@@ -9,7 +9,10 @@ to yours. Expect to edit partition names, GPU types, and time limits to match yo
   validation, the value-head training pipeline, safety generation + judging, and profiling.
 - **`research/`** — the sweeps, ablations, and diagnostics from development (compile-vs-eager
   isolation, K-sweeps, feature-parity probes, calibration investigation). Kept for provenance; most
-  users will not need them.
+  users will not need them. One is a live tool: **`refactor_reftest.sbatch`** — a bit-exact
+  behavior-preservation gate (save a token-id reference on a baseline, then `REFTEST_MODE=check`
+  after each plugin refactor across the `main` / `compiled` / `churn` configs) for anyone changing
+  the VFD runner.
 
 ## Environment variables
 
@@ -25,9 +28,10 @@ Each script reads these (with sensible fallbacks where safe); set the ones a giv
 | `CONDA_BASE` | conda install prefix | `$HOME/miniconda3` |
 | `VS_SCRATCH` | node-local scratch (envs, caches, HF) | `/tmp/$USER` |
 
-A ready-made value head is published at
+Ready-made value heads (Mistral-7B & Llama-3.1-8B × hh-rlhf / beavertails / pku_saferlhf) are
+published at
 [`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head) — point
-`VALUE_STEER_VHEAD` at a local download of it.
+`VALUE_STEER_VHEAD` at a local download of one (e.g. `mistral/hh-rlhf.bin`).
 
 The eval/profiling/diagnostic harnesses read a few more knobs (all optional, with defaults):
 
@@ -38,14 +42,16 @@ The eval/profiling/diagnostic harnesses read a few more knobs (all optional, wit
 | `JUDGE_MODEL` | judge/reward model for safety scoring | `NousResearch/Meta-Llama-3.1-8B-Instruct` |
 | `SAFETY_N` / `SAFETY_MAXTOK` / `SAFETY_SEED` | eval prompt count / max new tokens / seed | `64` / `400` / `15` |
 | `VFD_K` / `VFD_THRESHOLD` | candidates per step / intervention threshold | `8` / `0.5` |
-| `ENFORCE_EAGER` | `1` = eager (serving default); `0` = compile | `1` |
-| `SINGLE_STREAM` | opt into the compiled single-stream path (one request at a time) | `0` |
+| `ENFORCE_EAGER` | `1` = eager (simplest, serving default); `0` = compile — both correct for all batch sizes | `1` |
+| `SINGLE_STREAM` | no longer gates correctness (compiled decode now works batched); only reduces the scratch KV reserve | `0` |
 | `DOMAIN` | training domain (verifier + data) for the value-head pipeline | `safety` |
 | `SPP` | samples per prompt when generating training data | `1` |
 | `SAFETY_OUTDIR` | where safety-eval writes generations/scores | `.` |
 | `DEC_N` | prompts to generate for the decode pipeline | pipeline default |
 | `N_PROMPTS` / `HH_SUBSET` | prompt cap / hh-rlhf subset for `train_canonical` | all / `harmless-base` |
 | `VSTEER_TORCH_INDEX` | torch wheel index for the version sweep (e.g. `.../cu128` on a 12.x driver) | unset |
+| `REFTEST_MODE` / `REFTEST_CONFIG` | `refactor_reftest`: `save`\|`check` / `main`\|`compiled`\|`churn` | `check` / `main` |
+| `REFTEST_DIR` / `REFTEST_THR` | `refactor_reftest`: reference-json dir / intervention threshold | `$VS_SCRATCH/reftest` / `0.3571` |
 
 ## Submitting
 
