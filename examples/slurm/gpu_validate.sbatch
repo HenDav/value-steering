@@ -55,7 +55,10 @@ echo "=== value-steer-compat (static contracts) ==="
 value-steer-compat || true
 
 echo "=== GPU behavioral suite (the gate: abstention + VFD) ==="
-pytest tests/test_gpu_behavioral.py -q -m gpu -rA -s 2>&1 || true
+# Run each GPU test in its OWN process (make gpu-test): vLLM V1 keeps its KV reservation alive
+# in-process (outside torch's caching allocator), so a single-process run accumulates engines and
+# OOMs the later tests ("Free memory ... less than desired") -- spurious failures, not code faults.
+make gpu-test || echo "=== GPU BEHAVIORAL: failures above (see per-test output) ==="
 
 echo "=== full GPU diagnostic (verbose, supplementary) ==="
 python scripts/gpu_diag.py 2>&1 || true
