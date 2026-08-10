@@ -122,6 +122,10 @@ pytest -q                   # pure-logic suite (no GPU, no vLLM): ops, calibrati
 | VFD runner | complete and **GPU-validated** (A100, vLLM 0.19.1, Mistral-7B): single-forward K-candidate decode, end-to-end safer outputs under a Llama-3.1 judge; no silent gaps remain. Compiled batched decode and batched cudagraph capture additionally validated on H100 |
 | `--worker-cls` entry point, packaging, compat harness, version registry | complete |
 
+**Release validation (v0.2.0).** Built as a wheel, `pip`-installed into a clean env, and run
+end-to-end on **A100 (FA2)** and **H200 (Hopper/FA3)**: CPU suite 72 passed, `value-steer-compat`
+8/8, GPU behavioral 17/17 (each GPU test in its own process). An H100 confirmatory run is pending.
+
 The VFD candidate forward goes through `_model_forward` + the attention-metadata builder
 (standard paged decode); the KV cache-write is backend-specific and requires FlashAttention
 v2's KV layout (compute capability ≥ 8.0). GPU behavioral tests live in
