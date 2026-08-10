@@ -123,8 +123,8 @@ pytest -q                   # pure-logic suite (no GPU, no vLLM): ops, calibrati
 | `--worker-cls` entry point, packaging, compat harness, version registry | complete |
 
 **Release validation (v0.2.0).** Built as a wheel, `pip`-installed into a clean env, and run
-end-to-end on **A100 (FA2)** and **H200 (Hopper/FA3)**: CPU suite 72 passed, `value-steer-compat`
-8/8, GPU behavioral 17/17 (each GPU test in its own process). An H100 confirmatory run is pending.
+end-to-end on **A100 (FA2)**, **H100** and **H200 (Hopper/FA3)**: CPU suite 72 passed,
+`value-steer-compat` 8/8, GPU behavioral 17/17 (each GPU test in its own process).
 
 The VFD candidate forward goes through `_model_forward` + the attention-metadata builder
 (standard paged decode); the KV cache-write is backend-specific and requires FlashAttention
