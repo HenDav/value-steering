@@ -48,11 +48,19 @@ def do_gen(args):
     flat feature cache + a gen.jsonl for judging."""
     from vllm import LLM, SamplingParams
     recs = dataset_loaders.load_prompts("safety", args.source, args.n)
+    # VFD needs a SINGLE KV-cache group. Models with mixed attention (e.g. Gemma's alternating
+    # sliding/full) otherwise split into per-attention-type groups and hit the runner's fail-fast.
+    # Disabling the hybrid KV-cache manager unifies them onto the full-attention spec (sliding
+    # window becomes an in-kernel mask over full KV), which the candidate forward handles normally.
+    extra = {"disable_hybrid_kv_cache_manager": True} if args.disable_hybrid_kv_cache else {}
+    if args.force_arch:                    # e.g. load Gemma-4 as text-only Gemma4ForCausalLM (the
+        extra["hf_overrides"] = {"architectures": [args.force_arch]}  # paper's arch; skips the vision wrapper
     llm = LLM(model=args.model, worker_cls="value_steer.worker.ValueSteerWorker",
               additional_config={"vfd": {"enabled": True, "threshold": 2.0, "num_candidates": 8,
-                                         "strict": True, "value_head_path": args.head}},
+                                         "strict": True, "value_head_path": args.head,
+                                         "single_stream": args.single_stream}},
               enforce_eager=True, async_scheduling=False, gpu_memory_utilization=args.util,
-              max_num_seqs=args.max_num_seqs, max_model_len=2048)
+              max_num_seqs=args.max_num_seqs, max_model_len=2048, **extra)
     runner = _runner(llm)
 
     # samples_per_prompt > 1: emit S responses per prompt (data augmentation -- diverse
@@ -116,8 +124,16 @@ def do_label(args):
                      shape=(int(meta["total_rows"]), H))
     index = [json.loads(l) for l in open(os.path.join(args.cache_dir, "index.jsonl"))]
     gens = [json.loads(l) for l in open(os.path.join(args.cache_dir, "gen.jsonl"))]
-    scores = verifier.score_batch([g["prompt"] for g in gens], [g["generation"] for g in gens],
-                                  [None] * len(gens))
+    # Reasoning models (Gemma-4 <|channel>thought..<channel|>, Qwen/DeepSeek <think>..</think>) emit
+    # CoT before the answer. Judge the FINAL answer only (matches llm_safety.strip_thinking); the
+    # captured trajectory still spans every decoded token, which is what VFD scores at inference.
+    def _strip_thinking(t):
+        import re
+        t = re.sub(r"<think>.*?</think>", "", t, flags=re.DOTALL)
+        t = re.sub(r"<\|channel>thought.*?<channel\|>", "", t, flags=re.DOTALL)
+        return t.strip()
+    gen_texts = [(_strip_thinking(g["generation"]) if args.strip_thinking else g["generation"]) for g in gens]
+    scores = verifier.score_batch([g["prompt"] for g in gens], gen_texts, [None] * len(gens))
     print(f"# judged {len(gens)} ({sum(s>=0.5 for s in scores)} undesirable)", flush=True)
 
     import random
@@ -146,9 +162,60 @@ def do_label(args):
     write_split("val", lambda p: p in val_prompts)
 
 
+def do_calibrate(args):
+    """Decode-matched conformal calibration: score the head over each labeled example's captured
+    decode trajectory and call value_steer.calibration.posterior_threshold (the conformal +1
+    quantile over the SAFE examples, tau=alpha) at each alpha. Writes the ĉ(alpha) curve to
+    <cache>/thresholds.json. Reads a labeled cache (as written by --phase label)."""
+    from value_steer.value_probe import load_value_head
+    from value_steer.train_probe import FeatureCacheDataset
+    from value_steer import calibration
+
+    with open(os.path.join(args.cache_dir, "meta.json")) as f:
+        H = int(json.load(f)["H"])
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    head = load_value_head(args.head, H, device)
+    ds = FeatureCacheDataset(args.cache_dir)
+
+    trajectories, safe_labels = [], []                     # score each captured trajectory ONCE
+    with torch.no_grad():
+        for i in range(len(ds)):
+            item = ds[i]
+            probs = head.p(item["features"].to(device))    # [Li] P(undesirable) in (0,1)
+            trajectories.append(probs[item["prompt_len"]:].float().tolist())
+            safe_labels.append(int(item["label"] >= 0.5))   # 1 = undesirable, 0 = safe/good
+    n_safe = sum(1 for s in safe_labels if s == 0)
+
+    alphas = [float(a) for a in args.alphas.split(",")]
+    curve = [calibration.posterior_threshold(safe_labels, trajectories, tau=a) for a in alphas]
+    out = {"alphas": alphas, "scalar": curve, "n": len(ds), "n_safe": n_safe,
+           "model": args.model, "head": os.path.abspath(args.head)}
+    with open(os.path.join(args.cache_dir, "thresholds.json"), "w") as f:
+        json.dump(out, f, indent=2)
+
+    # Also fold the curve into the head's sidecar, so `--phase calibrate` leaves the head carrying
+    # its ĉ(α) curve the way the published heads do (keeps `threshold` = a single default if present).
+    sidecar_path = args.head + ".meta.json"
+    sidecar = json.load(open(sidecar_path)) if os.path.exists(sidecar_path) else {}
+    sidecar.setdefault("feature_spec", {"layer": "final", "norm": "post", "pooling": "none", "dtype": "fp32"})
+    sidecar.setdefault("threshold", None)
+    sidecar.setdefault("meta", {})["calibration"] = {
+        "method": "decode-matched conformal posterior_threshold",
+        "alphas": alphas, "thresholds": [round(c, 6) for c in curve],
+        "n": len(ds), "n_safe": n_safe,
+        "guarantee": "P(intervene | safe) <= alpha",
+    }
+    with open(sidecar_path, "w") as f:
+        json.dump(sidecar, f, indent=2)
+
+    print(f"[calibrate] n={len(ds)} n_safe={n_safe}  alphas={alphas}", flush=True)
+    print("[calibrate] scalar c(alpha) = " + " ".join(f"{c:.4f}" for c in curve), flush=True)
+    print(f"[calibrate] curve -> {sidecar_path} (meta.calibration) + {args.cache_dir}/thresholds.json", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--phase", choices=["gen", "label"], required=True)
+    ap.add_argument("--phase", choices=["gen", "label", "calibrate"], required=True)
     ap.add_argument("--cache-dir", required=True)
     ap.add_argument("--model", default=os.environ.get("VALUE_STEER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3"),
                     help="backbone model (HF id or local path); env VALUE_STEER_MODEL overrides the default")
@@ -167,11 +234,23 @@ def main():
     ap.add_argument("--gen-chunk", type=int, default=256)
     ap.add_argument("--judge-model", default="NousResearch/Meta-Llama-3.1-8B-Instruct")
     ap.add_argument("--val-split", type=float, default=0.1)
+    ap.add_argument("--single-stream", action="store_true",
+                    help="gen: R=1 scratch reserve (pair with --max-num-seqs 1 for a true single-stream decode)")
+    ap.add_argument("--disable-hybrid-kv-cache", action="store_true",
+                    help="gen: unify mixed-attention models (e.g. Gemma sliding/full) onto one KV-cache group so VFD's single-group surgery applies")
+    ap.add_argument("--force-arch", default="",
+                    help="gen: override the model's architecture (hf_overrides), e.g. Gemma4ForCausalLM to load Gemma-4 text-only")
+    ap.add_argument("--strip-thinking", action="store_true",
+                    help="label: strip reasoning-model CoT (Gemma <|channel>thought, Qwen <think>) before judging the answer")
+    ap.add_argument("--alphas", default="0.05,0.25,0.45,0.65,0.85",
+                    help="calibrate: comma-separated intervention error budgets (tau) for the c(alpha) curve")
     args = ap.parse_args()
     if args.phase == "gen":
         do_gen(args)
-    else:
+    elif args.phase == "label":
         do_label(args)
+    else:
+        do_calibrate(args)
 
 
 if __name__ == "__main__":

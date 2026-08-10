@@ -43,13 +43,24 @@ VFD_DUMP_HIDDEN=1 python scripts/decode_extract.py --phase gen --cache-dir vh.ca
 python scripts/decode_extract.py --phase label --cache-dir vh.cache \
     --judge-model NousResearch/Meta-Llama-3.1-8B-Instruct --val-split 0.1
 
-# 3. train + calibrate on the decode-feature cache (no model loaded)
+# 3. train (+ optionally write ONE conservative threshold, tau=alpha=0.05, into the sidecar)
 python scripts/train_value_head.py --phase train --cache-dir vh.cache \
-    --out value_head.bin --domain safety --calibrate
+    --out value_head.bin --domain safety --calibrate --cal-tau 0.05
+
+# 4. calibrate the full conformal ĉ(α) CURVE (what the published heads carry) from the labeled
+#    decode cache -> vh.cache/val/thresholds.json  (CPU-only; no model, no retraining)
+python scripts/decode_extract.py --phase calibrate --cache-dir vh.cache/val \
+    --head value_head.bin --alphas 0.05,0.25,0.45,0.65,0.85
 ```
 
 Recipe defaults match the reference (focal + TD-coherence, coh 0.1, lr 1e-4 with linear
 warmup+decay, batch 128, 10 epochs early-stopped).
+
+Step 3's `--calibrate` bakes a **single** threshold (at `--cal-tau`) into `value_head.bin.meta.json`
+— handy for a quick default. Step 4 instead emits the **whole ĉ(α) curve** (`P(intervene | safe) ≤ α`
+at each α); that curve is what the published sidecars carry, so callers pick an α rather than inherit
+one number. Both read the same decode-matched, judge-labeled cache — the value the VFD runner scores
+at inference — so either threshold is valid for decode (a prefill-extracted threshold would not be).
 
 > **Deprecated — prefill path.** `scripts/gen_value_data.py` + `train_value_head.py --phase
 > extract` (vLLM **pooling**) extract *prefill* features and carry the train/inference mismatch
@@ -57,21 +68,24 @@ warmup+decay, batch 128, 10 epochs early-stopped).
 
 ## Using the trained head
 
-A pre-trained safety head is published at
-[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head)
-(Mistral-7B-Instruct-v0.3, decode-matched). On the full hh-rlhf harmless-base test split, VFD with
-this head at threshold 0.3 (K=8) reduces the judged unsafe rate versus base, **0.462 → 0.359**. See
-the model card and its `eval_results.md` for the threshold sweep and helpfulness numbers.
+Pre-trained safety heads are published at
+[`HenDav/value-steer-safety-head`](https://huggingface.co/HenDav/value-steer-safety-head), one per
+backbone × dataset — **Mistral-7B-Instruct-v0.3** and **Llama-3.1-8B-Instruct** × **hh-rlhf /
+beavertails / pku_saferlhf** (e.g. `mistral/hh-rlhf.bin`), each decode-matched. Every sidecar
+carries a conformal **ĉ(α) curve**: ĉ(α) is calibrated so VFD intervenes on **at most an α fraction
+of safe generations** (`P(intervene | safe) ≤ α`). Pick the α that fits your risk tolerance.
 
 ```python
 LLM(model=..., worker_cls="value_steer.worker.ValueSteerWorker",
-    additional_config={"vfd": {"enabled": True, "value_head_path": "value_head.bin",
-                               "threshold": 0.3, "num_candidates": 8}})
+    additional_config={"vfd": {"enabled": True, "value_head_path": "mistral/hh-rlhf.bin",
+                               "threshold": 0.36, "num_candidates": 8}})
 ```
 
-The head steers around **threshold 0.3**. The conformal `--calibrate` threshold in the sidecar is
-*conservative* (bounds false interventions at `tau`) and can sit higher than the steering sweet
-spot — start at 0.3 and tune. Recalibrate on held-out data with `scripts/calibrate_threshold.py`.
+The threshold *is* a point on that curve — the Mistral hh-rlhf head is ~0.36 at α=0.45, rising to
+~0.75 at α=0.05 (lower α → higher threshold → fewer interventions). The published curves were fit
+**decode-matched** (score the values the VFD runner produces during decode, then take the conformal
+quantile over the safe trajectories); recalibrate on your own held-out data the same way via
+`scripts/decode_extract.py`.
 
 ## Adding a domain (math, code, …)
 
