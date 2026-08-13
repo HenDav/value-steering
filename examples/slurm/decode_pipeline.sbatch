@@ -32,7 +32,7 @@ python scripts/decode_extract.py --phase gen --cache-dir "$CACHE" --model "$MODE
 
 echo "########## 2. judge-label + split train/val (Llama; gen model freed) ##########"
 python scripts/decode_extract.py --phase label --cache-dir "$CACHE" --model "$MODEL" \
-    --judge-model NousResearch/Meta-Llama-3.1-8B-Instruct --val-split 0.1
+    --judge-model meta-llama/Llama-3.1-8B-Instruct --val-split 0.1
 
 echo "########## 3. train head on decode features (ref recipe: lr1e-4+warmup,batch128,10ep) ##########"
 python scripts/train_value_head.py --phase train --out "$OUT" --cache-dir "$CACHE" \

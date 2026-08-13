@@ -34,6 +34,6 @@ echo "=== gen base ===";                     python scripts/safety_eval.py gen b
 echo "=== gen vfd_cal (thr=$THR) ===";        VFD_THRESHOLD=$THR python scripts/safety_eval.py gen vfd_cal || echo "VFD_CAL FAILED"
 echo "=== gen vfd_t30 (thr 0.3) ===";        VFD_THRESHOLD=0.3 python scripts/safety_eval.py gen vfd_t30 || echo "VFD_T30 FAILED"
 echo "=== score Ray2333 ===";                 python scripts/safety_eval.py score base vfd_cal vfd_t30 || echo "SCORE FAILED"
-echo "=== Llama judge (primary metric) ===";  JUDGE_MODEL=NousResearch/Meta-Llama-3.1-8B-Instruct \
+echo "=== Llama judge (primary metric) ===";  JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct} \
     python scripts/safety_eval.py judge base vfd_cal vfd_t30 || echo "JUDGE FAILED"
 echo "=== DONE job ${SLURM_JOB_ID} ==="

@@ -38,7 +38,7 @@ export HF_HOME=${HF_HOME:-${VS_SCRATCH:-/tmp/$USER}/huggingface}
 
 ROOT=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 MODEL=${VALUE_STEER_MODEL:-mistralai/Mistral-7B-Instruct-v0.3}
-JUDGE=${JUDGE_MODEL:-NousResearch/Meta-Llama-3.1-8B-Instruct}
+JUDGE=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
 CACHE=${VS_SCRATCH:-/tmp/$USER}/canonical.cache
 PROMPTS=$ROOT/data/hh_train_full.jsonl
 N=${N_PROMPTS:-1000000}            # "all": prep caps at the deduped split size

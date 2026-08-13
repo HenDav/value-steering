@@ -23,7 +23,7 @@ python scripts/decode_extract.py --phase gen --cache-dir "$CACHE" --model "$MODE
     --source "$SRC" --n 1500 --max-tokens 96 --gen-chunk 256 --max-num-seqs 16 --seed 99
 echo "### judge-label + split ###"
 python scripts/decode_extract.py --phase label --cache-dir "$CACHE" --model "$MODEL" \
-    --judge-model NousResearch/Meta-Llama-3.1-8B-Instruct --val-split 0.0
+    --judge-model meta-llama/Llama-3.1-8B-Instruct --val-split 0.0
 echo "### analyze calibration (use train split = all, val-split 0) ###"
 python scripts/calib_analyze.py --cache-dir "$CACHE/train" --head "$HEAD"
 rm -rf "$CACHE"

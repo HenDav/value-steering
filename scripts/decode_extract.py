@@ -55,11 +55,15 @@ def do_gen(args):
     extra = {"disable_hybrid_kv_cache_manager": True} if args.disable_hybrid_kv_cache else {}
     if args.force_arch:                    # e.g. load Gemma-4 as text-only Gemma4ForCausalLM (the
         extra["hf_overrides"] = {"architectures": [args.force_arch]}  # paper's arch; skips the vision wrapper
+    # never-intervene capture draws the committed token from the natural distribution for ANY K, so
+    # K=1 yields training features from the SAME distribution at ~K x fewer forward rows/step (the
+    # specific samples differ via batch numerics, but the head learns the distribution, not tokens).
     llm = LLM(model=args.model, worker_cls="value_steer.worker.ValueSteerWorker",
-              additional_config={"vfd": {"enabled": True, "threshold": 2.0, "num_candidates": 8,
+              additional_config={"vfd": {"enabled": True, "threshold": 2.0,
+                                         "num_candidates": args.num_candidates,
                                          "strict": True, "value_head_path": args.head,
                                          "single_stream": args.single_stream}},
-              enforce_eager=True, async_scheduling=False, gpu_memory_utilization=args.util,
+              enforce_eager=not args.compiled, async_scheduling=False, gpu_memory_utilization=args.util,
               max_num_seqs=args.max_num_seqs, max_model_len=2048, **extra)
     runner = _runner(llm)
 
@@ -135,6 +139,11 @@ def do_label(args):
     gen_texts = [(_strip_thinking(g["generation"]) if args.strip_thinking else g["generation"]) for g in gens]
     scores = verifier.score_batch([g["prompt"] for g in gens], gen_texts, [None] * len(gens))
     print(f"# judged {len(gens)} ({sum(s>=0.5 for s in scores)} undesirable)", flush=True)
+    # durable labeled-generations record (every output sample + its judge score) for post-hoc eval
+    with open(os.path.join(args.cache_dir, "gen_scored.jsonl"), "w") as f:
+        for g, s in zip(gens, scores):
+            f.write(json.dumps({"index": g["index"], "prompt": g["prompt"],
+                                "generation": g["generation"], "score": float(s)}) + "\n")
 
     import random
     prompts = sorted({g["prompt"] for g in gens})
@@ -232,10 +241,14 @@ def main():
     ap.add_argument("--util", type=float, default=0.45)
     ap.add_argument("--max-num-seqs", type=int, default=16)
     ap.add_argument("--gen-chunk", type=int, default=256)
-    ap.add_argument("--judge-model", default="NousResearch/Meta-Llama-3.1-8B-Instruct")
+    ap.add_argument("--judge-model", default="meta-llama/Llama-3.1-8B-Instruct")
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--single-stream", action="store_true",
                     help="gen: R=1 scratch reserve (pair with --max-num-seqs 1 for a true single-stream decode)")
+    ap.add_argument("--num-candidates", type=int, default=8,
+                    help="gen: VFD K. For never-intervene capture the natural-sample distribution is K-independent, so K=1 is fastest (~K x fewer forward rows) and yields an equivalent training distribution.")
+    ap.add_argument("--compiled", action="store_true",
+                    help="gen: compile + cudagraph the decode (enforce_eager=False) -- faster throughput and matches a compiled inference runtime.")
     ap.add_argument("--disable-hybrid-kv-cache", action="store_true",
                     help="gen: unify mixed-attention models (e.g. Gemma sliding/full) onto one KV-cache group so VFD's single-group surgery applies")
     ap.add_argument("--force-arch", default="",

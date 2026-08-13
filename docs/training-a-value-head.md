@@ -41,7 +41,7 @@ VFD_DUMP_HIDDEN=1 python scripts/decode_extract.py --phase gen --cache-dir vh.ca
 
 # 2. judge-label the generations + split train/val (separate process: judge loads after gen frees)
 python scripts/decode_extract.py --phase label --cache-dir vh.cache \
-    --judge-model NousResearch/Meta-Llama-3.1-8B-Instruct --val-split 0.1
+    --judge-model meta-llama/Llama-3.1-8B-Instruct --val-split 0.1
 
 # 3. train (+ optionally write ONE conservative threshold, tau=alpha=0.05, into the sidecar)
 python scripts/train_value_head.py --phase train --cache-dir vh.cache \

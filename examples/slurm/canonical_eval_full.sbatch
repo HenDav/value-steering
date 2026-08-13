@@ -36,7 +36,7 @@ export VALUE_STEER_MODEL=${VALUE_STEER_MODEL:-mistralai/Mistral-7B-Instruct-v0.3
 export SAFETY_PROMPTS=$ROOT/data/hh_test_all.jsonl
 export SAFETY_OUTDIR=$ROOT/full_test_eval; mkdir -p "$SAFETY_OUTDIR"
 export SAFETY_N=5000 SAFETY_MAXTOK=400 VALUE_STEER_UTIL=0.45 ENFORCE_EAGER=1 VFD_K=8
-export JUDGE_MODEL=${JUDGE_MODEL:-NousResearch/Meta-Llama-3.1-8B-Instruct}
+export JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
 
 echo "=== prep ALL harmless-base TEST prompts ==="
 python - "$SAFETY_PROMPTS" <<'PY'

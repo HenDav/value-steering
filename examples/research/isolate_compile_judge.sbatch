@@ -21,7 +21,7 @@ cd ${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 export TOKENIZERS_PARALLELISM=false
 OUT=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}/isolate_compile
 echo "########## judge arm A: eager-R1 ##########"
-SAFETY_OUTDIR="$OUT/eager"    JUDGE_MODEL=NousResearch/Meta-Llama-3.1-8B-Instruct python scripts/safety_eval.py judge base vfd_k16
+SAFETY_OUTDIR="$OUT/eager"    JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct} python scripts/safety_eval.py judge base vfd_k16
 echo "########## judge arm B: compiled-R1 ##########"
-SAFETY_OUTDIR="$OUT/compiled" JUDGE_MODEL=NousResearch/Meta-Llama-3.1-8B-Instruct python scripts/safety_eval.py judge base vfd_k16
+SAFETY_OUTDIR="$OUT/compiled" JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct} python scripts/safety_eval.py judge base vfd_k16
 echo "=== DONE job ${SLURM_JOB_ID} ==="

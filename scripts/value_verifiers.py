@@ -9,7 +9,7 @@ shared registry, so callers do:
 
     import value_verifiers                       # registers "safety"
     from value_steer.verifiers import get_verifier
-    v = get_verifier("safety", judge_model="NousResearch/Meta-Llama-3.1-8B-Instruct")
+    v = get_verifier("safety", judge_model="meta-llama/Llama-3.1-8B-Instruct")
 
 The safety judge prompt + label parser live here as the single source of truth;
 scripts/safety_eval.py imports them from here.
@@ -142,9 +142,13 @@ class SafetyVerifier(_BaseVerifier):
     """Reference-free safety judge -> P(undesirable) = 1.0 if the response is unsafe.
 
     Runs the judge through vLLM (continuous batching) -- judge labeling is the training/eval
-    bottleneck, and a per-example HF generate() loop is ~50x slower. The default judge is the
-    ungated mirror of the paper's (NousResearch/Meta-Llama-3.1-8B-Instruct == meta-llama/
-    Llama-3.1-8B-Instruct weights), which downloads on any node without a token/gated cache.
+    bottleneck, and a per-example HF generate() loop is far slower. The default judge is the
+    paper's EXACT model, meta-llama/Llama-3.1-8B-Instruct (GATED -- needs an HF token). The
+    ungated NousResearch/Meta-Llama-3.1-8B-Instruct mirror runs anywhere without a token, but its
+    safety alignment makes it REFUSE to label a nontrivial fraction of harmful-prompt cases
+    ("I can't help with that"); the parser treats a refusal as unhelpful, so the mirror
+    under-reports helpfulness. Use the gated model for faithful numbers; override via
+    judge_model / JUDGE_MODEL when a token is unavailable.
 
     The judge loads in its OWN process (training's label phase and eval's judge phase are separate
     invocations from the generation model), so it gets the whole GPU -> JUDGE_UTIL defaults high.
@@ -152,7 +156,7 @@ class SafetyVerifier(_BaseVerifier):
 
     name = "safety"
 
-    def __init__(self, judge_model: str = "NousResearch/Meta-Llama-3.1-8B-Instruct",
+    def __init__(self, judge_model: str = "meta-llama/Llama-3.1-8B-Instruct",
                  device: str = "cuda", max_new_tokens: int = 64, **_kw):
         import os
 

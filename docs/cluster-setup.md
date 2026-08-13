@@ -45,7 +45,11 @@ shared and usually saturated). The harnesses are written to be submitted, not ru
   not force offline mode unless the model is known to be cached on that node.
 - **Gated** models (e.g. `meta-llama/*`, Llama-Guard) need an HF token. Where a token is not
   available, use an **ungated mirror** of the same weights (e.g.
-  `NousResearch/Meta-Llama-3.1-8B-Instruct`).
+  `NousResearch/Meta-Llama-3.1-8B-Instruct`). **Exception — the safety/helpfulness judge:** use the
+  gated `meta-llama/Llama-3.1-8B-Instruct` (the paper's exact model). The NousResearch mirror,
+  despite identical weights, self-refuses to judge a nontrivial fraction of harmful-prompt cases
+  ("I can't help with that"), which the parser counts as unhelpful — so it under-reports
+  helpfulness. Only fall back to the mirror when no token is available, and note the caveat.
 
 ## Required env vars for in-process vLLM (validation/eval jobs)
 

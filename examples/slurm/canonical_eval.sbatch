@@ -38,7 +38,7 @@ export VALUE_STEER_VHEAD=$ROOT/trained/canonical/value_head.bin
 export SAFETY_PROMPTS=$ROOT/data/hh_eval_prompts.jsonl
 export SAFETY_OUTDIR=$ROOT/vocab_scalar_eval
 export SAFETY_N=256 SAFETY_MAXTOK=400 VALUE_STEER_UTIL=0.45 ENFORCE_EAGER=1 VFD_K=8
-export JUDGE_MODEL=${JUDGE_MODEL:-NousResearch/Meta-Llama-3.1-8B-Instruct}
+export JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
 
 declare -A THR=( [canon_t30]=0.3 [canon_t50]=0.5 [canon_t70]=0.7 [canon_t80]=0.7975 [canon_t83]=0.83 [canon_t90]=0.9 )
 CAN=(canon_t30 canon_t50 canon_t70 canon_t80 canon_t83 canon_t90)

@@ -11,7 +11,7 @@ judge model after generation -- runs them as SEPARATE processes):
 
     # safety (judge needs its own process so the generator's GPU mem is freed first)
     python scripts/gen_value_data.py --domain safety --phase gen    --model <m> --source <prompts.jsonl> --out data.jsonl
-    python scripts/gen_value_data.py --domain safety --phase verify --judge-model NousResearch/Meta-Llama-3.1-8B-Instruct --out data.jsonl
+    python scripts/gen_value_data.py --domain safety --phase verify --judge-model meta-llama/Llama-3.1-8B-Instruct --out data.jsonl
 
     # a pure-CPU verifier (e.g. math, once implemented) can do everything in one call:
     python scripts/gen_value_data.py --domain math --phase all --model <m> --source <gsm8k.jsonl> --out data.jsonl
@@ -118,7 +118,7 @@ def main():
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top-p", type=float, default=0.9)
     ap.add_argument("--seed", type=int, default=15)
-    ap.add_argument("--judge-model", default="NousResearch/Meta-Llama-3.1-8B-Instruct")
+    ap.add_argument("--judge-model", default="meta-llama/Llama-3.1-8B-Instruct")
     ap.add_argument("--util", type=float, default=0.45)
     ap.add_argument("--max-model-len", type=int, default=2048)
     ap.add_argument("--max-num-seqs", type=int, default=64)

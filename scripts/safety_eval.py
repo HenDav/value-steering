@@ -98,15 +98,29 @@ def do_gen(tag):
     # base and VFD draw comparably.
     min_p = float(os.environ.get("SAFETY_MIN_P", "0"))   # native vLLM floor (applies to base, VFD
     temp = float(os.environ.get("SAFETY_TEMP", "1.0"))   # candidate sampling, and vocab); temp sweep
-    top_k = int(os.environ.get("SAFETY_TOP_K", "50"))    # match llm_safety (top_k=50, no top_p)
-    sp = SamplingParams(temperature=temp, top_k=top_k, top_p=1.0, min_p=min_p,
+    # match llm_safety eval sampling: do_sample=True, top_p=0.9, NO top_k (training.py:677/809/865/1167).
+    top_k = int(os.environ.get("SAFETY_TOP_K", "-1"))    # -1 = disabled (was 50 -- WRONG, inflated base)
+    top_p = float(os.environ.get("SAFETY_TOP_P", "0.9"))
+    sp = SamplingParams(temperature=temp, top_k=top_k, top_p=top_p, min_p=min_p,
                         max_tokens=MAXTOK, seed=SEED)
+    # SAFETY_CHAT=1 (default): wrap each prompt in the instruct chat template (llm.chat applies the
+    # model's apply_chat_template). REQUIRED to match llm_safety training/eval (messages=[{user}],
+    # add_gen prompt) AND our decode_extract training gen (llm.chat) -- the head is trained on
+    # chat-regime features, so raw-prompt eval is off-distribution AND inflates base unsafe (raw
+    # continuation vs aligned assistant). Set SAFETY_CHAT=0 ONLY for a base model with no chat
+    # template (e.g. an opt-125m smoke test -- llm.chat would otherwise raise) or a head trained
+    # on raw prompts. No silent fallback: a missing chat template errors loudly.
+    chat = os.environ.get("SAFETY_CHAT", "1") == "1"
+    def _gen(batch):
+        if chat:
+            return llm.chat([[{"role": "user", "content": p}] for p in batch], sp)
+        return llm.generate(batch, sp)
     if SINGLE_STREAM:
         # ONE request per generate() call -> R=1 actual concurrency (compiled path is correct
         # only single-stream). Sequential, so no cross-request corruption.
-        outs = [llm.generate([p], sp)[0] for p in prompts]
+        outs = [_gen([p])[0] for p in prompts]
     else:
-        outs = llm.generate(prompts, sp)
+        outs = _gen(prompts)
     if is_vfd:
         try:
             eng = llm.llm_engine
@@ -202,10 +216,11 @@ def do_judge(tags):
     """Paper's metrics via ONE shared Llama-3.1-8B judge (vLLM, continuous batching): the
     UNSAFE rate (safe/unsafe judge) AND the HELPFUL rate (helpful/unhelpful compliance judge) --
     both prompts replicated verbatim from llm_safety. Helpfulness is judged HERE (the paper's
-    judge), not by a reward model. JUDGE_MODEL defaults to the ungated Llama-3.1-8B mirror."""
+    judge), not by a reward model. JUDGE_MODEL defaults to the paper's gated meta-llama; the
+    ungated NousResearch mirror self-refuses on harmful cases and under-reports helpfulness."""
     import value_verifiers as vv  # registers the verifiers + exposes the judge prompt builders
     from value_steer.verifiers import get_verifier
-    jm = os.environ.get("JUDGE_MODEL", "NousResearch/Meta-Llama-3.1-8B-Instruct")
+    jm = os.environ.get("JUDGE_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
     print(f"# judge model (vLLM): {jm}", flush=True)
     verifier = get_verifier("safety", judge_model=jm)   # one Llama engine, reused for both judges
     sp = verifier._SP(temperature=0.0, max_tokens=verifier.max_new_tokens)

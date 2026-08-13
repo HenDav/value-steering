@@ -74,6 +74,6 @@ for tag in ("vfd_k16", "base"):
 PY
 
 echo "########## Llama judge (primary metric) ##########"
-SAFETY_OUTDIR="$OUT/eager"    JUDGE_MODEL=NousResearch/Meta-Llama-3.1-8B-Instruct python scripts/safety_eval.py judge base vfd_k16 || echo "A judge FAILED"
-SAFETY_OUTDIR="$OUT/compiled" JUDGE_MODEL=NousResearch/Meta-Llama-3.1-8B-Instruct python scripts/safety_eval.py judge base vfd_k16 || echo "B judge FAILED"
+SAFETY_OUTDIR="$OUT/eager"    JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct} python scripts/safety_eval.py judge base vfd_k16 || echo "A judge FAILED"
+SAFETY_OUTDIR="$OUT/compiled" JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct} python scripts/safety_eval.py judge base vfd_k16 || echo "B judge FAILED"
 echo "=== DONE job ${SLURM_JOB_ID} ==="

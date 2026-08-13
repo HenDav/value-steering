@@ -39,8 +39,9 @@ The eval/profiling/diagnostic harnesses read a few more knobs (all optional, wit
 |---|---|---|
 | `VALUE_STEER_TEST_MODEL` | small model for quick GPU smoke tests | `facebook/opt-125m` |
 | `VALUE_STEER_UTIL` | vLLM `gpu_memory_utilization` | `0.45` |
-| `JUDGE_MODEL` | judge/reward model for safety scoring | `NousResearch/Meta-Llama-3.1-8B-Instruct` |
+| `JUDGE_MODEL` | Llama judge for safety + helpfulness (gated; needs HF token). The ungated `NousResearch/Meta-Llama-3.1-8B-Instruct` mirror runs tokenless but self-refuses on harmful cases → under-reports helpfulness | `meta-llama/Llama-3.1-8B-Instruct` |
 | `SAFETY_N` / `SAFETY_MAXTOK` / `SAFETY_SEED` | eval prompt count / max new tokens / seed | `64` / `400` / `15` |
+| `SAFETY_CHAT` / `SAFETY_TOP_P` | `1` = instruct chat template (matches training; keep on for real models) / nucleus top-p | `1` / `0.9` |
 | `VFD_K` / `VFD_THRESHOLD` | candidates per step / intervention threshold | `8` / `0.5` |
 | `ENFORCE_EAGER` | `1` = eager (simplest, serving default); `0` = compile — both correct for all batch sizes | `1` |
 | `SINGLE_STREAM` | no longer gates correctness (compiled decode now works batched); only reduces the scratch KV reserve | `0` |

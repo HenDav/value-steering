@@ -8,7 +8,8 @@
 # Paper's safety metric: LLM judge labels each saved response safe/unsafe -> unsafe rate (base
 # vs VFD), using the paper's verbatim judge prompt. The paper's judge is Llama-3.1-8B-Instruct;
 # meta-llama's copy is gated + only node-locally cached on the (busy) download nodes, so we pull
-# the UNGATED mirror NousResearch/Meta-Llama-3.1-8B-Instruct (same weights) on any free node.
+# the paper's gated meta-llama/Llama-3.1-8B-Instruct (needs an HF token). The NousResearch
+# mirror is a tokenless fallback but self-refuses on harmful cases -> under-reports helpfulness.
 # Judge needs only transformers, so the vsteer env suffices. Submit: sbatch --partition=llm,normal,msc examples/research/safety_judge_compiled.sbatch
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
@@ -23,5 +24,5 @@ cd ${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}
 export TOKENIZERS_PARALLELISM=false          # use ~/.local transformers (the one that imports)
 python -c "import transformers,torch;print('transformers',transformers.__version__,'cuda',torch.cuda.is_available())"
 export SAFETY_OUTDIR=${VALUE_STEER_ROOT:-$(git rev-parse --show-toplevel)}/safety_compiled
-JUDGE_MODEL=NousResearch/Meta-Llama-3.1-8B-Instruct python scripts/safety_eval.py judge base vfd_t30
+JUDGE_MODEL=${JUDGE_MODEL:-meta-llama/Llama-3.1-8B-Instruct} python scripts/safety_eval.py judge base vfd_t30
 echo "=== DONE job ${SLURM_JOB_ID} ==="
