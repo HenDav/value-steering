@@ -80,8 +80,8 @@ LLM(model=..., worker_cls="value_steer.worker.ValueSteerWorker",
                                "threshold": 0.36, "num_candidates": 8}})
 ```
 
-The threshold *is* a point on that curve — it rises as α falls (lower α → higher threshold → fewer
-interventions), and each head's sidecar carries its own values. The published curves were fit
+The threshold *is* a point on that curve — the Mistral hh-rlhf head is ~0.36 at α=0.45, rising to
+~0.75 at α=0.05 (lower α → higher threshold → fewer interventions). The published curves were fit
 **decode-matched** (score the values the VFD runner produces during decode, then take the conformal
 quantile over the safe trajectories); recalibrate on your own held-out data the same way via
 `scripts/decode_extract.py`.

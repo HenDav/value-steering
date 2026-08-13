@@ -45,7 +45,7 @@ All notable changes to this project are documented here. The format is based on
   robust under concurrent R>1 decode: `fast_build` for the attention-metadata builder (fixes the
   FlashAttention-metadata crash on the candidate forward) and populating the compiled model's
   persistent input buffers before each captured step. **Batched cudagraph capture is enabled** and
-  runs faster than eager; capturing the R>1 candidate graph
+  runs faster than eager (~+10–26% tok/s measured across R=1–16); capturing the R>1 candidate graph
   needs `max_num_seqs >= R*K`, above which it falls back to a still-compiled path.
 
 ## [0.1.1]
