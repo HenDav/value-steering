@@ -74,8 +74,8 @@ def _tokenize(tok, rows, max_len):
 def do_extract(args):
     """Load the pooling model, split + tokenize, stream features to <cache-dir>/{train,val}.
 
-    NOTE: this is a PREFILL extraction and carries a train/inference feature mismatch (~0.97 cos vs
-    the decode hidden VFD scores). For training, prefer scripts/decode_extract.py (decode-matched);
+    NOTE: this is a PREFILL extraction and carries a train/inference feature mismatch vs
+    the decode hidden VFD scores. For training, prefer scripts/decode_extract.py (decode-matched);
     `--phase train` here works on either cache. See docs/training-a-value-head.md."""
     import vllm_extract
     llm = vllm_extract.build_pooling_llm(args.model, gpu_memory_utilization=args.util,

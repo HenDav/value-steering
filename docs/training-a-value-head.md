@@ -8,12 +8,11 @@ selection logic work for any domain — only the **verifier** that labels traini
 ## Critical: train on DECODE features, not prefill features
 
 The head is *scored at inference* on the hidden VFD computes during **decode** (its candidate
-forward). That tensor differs from a **prefill** extraction (running the full sequence through the
-model at once, e.g. an HF forward or vLLM pooling) by **~0.97 cosine** — far more than float noise.
+forward). That tensor differs **substantially** from a **prefill** extraction (running the full
+sequence through the model at once, e.g. an HF forward or vLLM pooling) — far more than float noise.
 A head trained on prefill features can be an excellent *classifier* yet fail to *steer*, because
 its sharp decision boundary sits in the wrong place for the decode features it's actually scored
-on. Measured on hh-rlhf (Mistral-7B, Llama judge): a **prefill/pooling** head barely moves the
-unsafe rate, while a **decode-matched** head steers it down at threshold 0.3.
+on: a **prefill/pooling** head barely moves the unsafe rate, while a **decode-matched** head steers.
 
 So **extract training features the way they're scored**: generate responses with the VFD runner
 while capturing the per-token decode hidden (`VFD_DUMP_HIDDEN`), then train on those. This is what
@@ -81,8 +80,8 @@ LLM(model=..., worker_cls="value_steer.worker.ValueSteerWorker",
                                "threshold": 0.36, "num_candidates": 8}})
 ```
 
-The threshold *is* a point on that curve — the Mistral hh-rlhf head is ~0.36 at α=0.45, rising to
-~0.75 at α=0.05 (lower α → higher threshold → fewer interventions). The published curves were fit
+The threshold *is* a point on that curve — it rises as α falls (lower α → higher threshold → fewer
+interventions), and each head's sidecar carries its own values. The published curves were fit
 **decode-matched** (score the values the VFD runner produces during decode, then take the conformal
 quantile over the safe trajectories); recalibrate on your own held-out data the same way via
 `scripts/decode_extract.py`.

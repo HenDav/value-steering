@@ -3,8 +3,8 @@
 vLLM-backed feature extractor for value-head training.
 
 DEPRECATED for training: this is a PREFILL extraction (the full sequence at once via the pooling
-runner). The value head is SCORED at inference on the DECODE hidden VFD computes, which differs by
-~0.97 cosine -- a head trained on these prefill features can classify well yet fail to steer. Use
+runner). The value head is SCORED at inference on the DECODE hidden VFD computes, which differs
+substantially -- a head trained on these prefill features can classify well yet fail to steer. Use
 scripts/decode_extract.py (decode-matched) for training data. This module remains useful for
 prefill feature parity/diagnostics.
 

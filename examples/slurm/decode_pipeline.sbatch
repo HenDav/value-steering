@@ -6,7 +6,7 @@
 #SBATCH --mem=96G
 #SBATCH --output=decode_pipeline.%j.out
 # Fix-A experiment: train the value head on DECODE-matched features (the exact hidden VFD scores)
-# instead of pooling/prefill features, to close the ~0.97 train/inference gap.
+# instead of pooling/prefill features, to close the train/inference gap.
 #   gen (VFD never-intervene + capture decode hidden) -> judge-label + split -> train -> [test chained]
 # Same node throughout (cache is node-local). Submit: sbatch -p normal,llm -w <env-node> examples/slurm/decode_pipeline.sbatch
 set -e

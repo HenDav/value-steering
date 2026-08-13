@@ -8,7 +8,8 @@
 #SBATCH --output=canonical_eval_full.%j.out
 # Definitive eval on the FULL held-out set: ALL harmless-base TEST prompts (2178 unique, never seen
 # in the 17k train). Data-scaling ladder base vs 4500 vs 17k(x1) vs 68k(canonical, 17k x4), same
-# thresholds + vLLM judge. n=2178 -> binomial SE ~0.01 (resolves the ~0.04 gap n=256 couldn't).
+# thresholds + vLLM judge. n=2178 -> tight binomial SE, enough to resolve small method gaps a
+# smaller n=256 run couldn't.
 set -e
 echo "=== node: $(hostname)  job: ${SLURM_JOB_ID} ==="
 source ${CONDA_BASE:-$HOME/miniconda3}/etc/profile.d/conda.sh

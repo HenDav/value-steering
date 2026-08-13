@@ -3,7 +3,7 @@
 Decode-matched feature extraction for value-head training (closes the train/inference gap).
 
 The value head is SCORED at inference on the hidden the VFD runner produces during DECODE, which
-differs from a prefill/pooling extraction (~0.97 cosine, measured). So instead of pooling-prefill
+differs substantially from a prefill/pooling extraction. So instead of pooling-prefill
 features, capture features the way they're actually scored: GENERATE responses with the VFD runner
 (never-intervene) while VFD_DUMP_HIDDEN records the exact per-token decode hidden, judge-label the
 fresh generations, and train on those. Features then == inference features (response tokens only,

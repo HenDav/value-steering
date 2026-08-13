@@ -131,9 +131,8 @@ single_stream, else K*max_num_seqs). Batched CUDA-graph CAPTURE is enabled too: 
 forward is captured at R==1 AND R>1 whenever its n=R*K rows fit a captured graph. Capturing the
 R>1 graph needs max_num_seqs>=R*K (vLLM captures an N-row uniform-decode graph only when
 max_num_seqs>=N; ceiling = min(max_num_seqs*2, 512)), above which it falls back to the still-
-inductor-compiled eager path. Measured FASTER than eager (Mistral-7B, h100): capture-vs-eager
-tok/s at R=1/2/4/8/16 = +17/+15/+26/+11/+10%. EAGER (enforce_eager=True) stays correct for all R
-and is the serving default.
+inductor-compiled eager path. Measured faster than eager across R. EAGER (enforce_eager=True) stays
+correct for all R and is the serving default.
 
 NOTE (load-bearing): the KV-write op reads the new-token slot from
 forward_context.slot_mapping[layer_name], NOT from attn_metadata -- so _candidate_forward
@@ -195,7 +194,7 @@ class VFDModelRunner(GPUModelRunner):
         # torch.compile / CUDA-graph decode. Correct for ALL batch sizes (eager and compiled) after
         # the two compiled-batched fixes documented at self._model_compiled below. The candidate
         # forward is cudagraph-CAPTURED whenever the n=R*K rows fit a captured graph -- at R==1 AND R>1
-        # (+10..26% tok/s vs eager, validated correct at R=2/4/8/16). vLLM captures a uniform-decode
+        # (faster than eager, validated correct at R=2/4/8/16). vLLM captures a uniform-decode
         # graph at N rows only when max_num_seqs>=N (gpu_model_runner._dummy_run) and
         # max_cudagraph_capture_size defaults to min(max_num_seqs*2, 512), so capturing the R>1 graph
         # needs max_num_seqs>=R*K; above the ceiling the candidate forward falls back to the (still
@@ -286,8 +285,8 @@ class VFDModelRunner(GPUModelRunner):
 
 
         # CUDA-graph capture of the per-layer KV surgery (copy + commit). Those loops are
-        # ~95% kernel-launch overhead (measured ~2ms/step on Mistral-7B, data moved is
-        # tiny); replaying the L-layer loop as ONE captured graph collapses ~64 launches to 1.
+        # dominated by kernel-launch overhead (data moved is tiny); replaying the L-layer loop
+        # as ONE captured graph collapses the per-layer launches to 1.
         # Captured lazily per exact row-count (zero padding waste). The per-op gather temp
         # scales with rows*block_size, so capture is capped to small batches (where launch
         # overhead dominates anyway); larger batches fall back to the eager loop. Persistent
@@ -603,7 +602,7 @@ class VFDModelRunner(GPUModelRunner):
         from vllm.forward_context import BatchDescriptor
         # Cudagraph-capture the candidate forward whenever a captured PIECEWISE graph fits the n=R*K
         # rows -- at R==1 AND R>1. VALIDATED correct + faster at R=2/4/8/16 (greedy texts coherent per
-        # request, no cross-request bleed; +10..26% tok/s vs eager). The dispatcher rounds n up to a
+        # request, no cross-request bleed). The dispatcher rounds n up to a
         # captured size and returns NONE when none fits (n > max_cudagraph_capture_size = min(mns*2,
         # 512)), so large batches fall back to the eager path automatically. Capturing the R>1 graph
         # requires max_num_seqs >= n=R*K (vLLM captures an N-row uniform-decode graph only when

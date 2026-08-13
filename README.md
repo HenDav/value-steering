@@ -142,15 +142,15 @@ v2's KV layout (compute capability ≥ 8.0). GPU behavioral tests live in
   `enforce_eager=True` (the serving default) is the simplest option and is correct for **all batch
   sizes** — batched, concurrent VFD serving under continuous batching is a fully supported path. The
   CUDA-graph/`torch.compile` path is now **also correct batched** and cudagraph-captures the
-  per-step candidate forward for a throughput gain over eager (measured ~+10–26% tok/s across
-  R=1–16). Capturing the R>1 candidate graph requires `max_num_seqs >= R*K` (K = candidates per
+  per-step candidate forward for a throughput gain over eager. Capturing the R>1 candidate graph
+  requires `max_num_seqs >= R*K` (K = candidates per
   step); above that it falls back to a still-compiled path. `vfd.single_stream` no longer gates
   correctness — it only sizes the scratch KV reserve.
 - **VFD threshold.** Each published head's sidecar carries a **decode-matched conformal ĉ(α) curve**,
   not a single number: `ĉ(α)` is calibrated so VFD intervenes on **at most an α fraction of safe
-  generations** (`P(intervene | safe) ≤ α`). E.g. the Mistral hh-rlhf head is ~0.36 at α=0.45, rising
-  to ~0.75 at α=0.05 (lower α → fewer interventions). Pick the α that matches your risk tolerance. See
-  [docs/training-a-value-head.md](docs/training-a-value-head.md).
+  generations** (`P(intervene | safe) ≤ α`). The threshold rises as α falls (lower α → higher ĉ(α) →
+  fewer interventions); each head's sidecar carries its own calibrated values. Pick the α that matches
+  your risk tolerance. See [docs/training-a-value-head.md](docs/training-a-value-head.md).
 
 ## Citation
 

@@ -45,7 +45,7 @@ All notable changes to this project are documented here. The format is based on
   robust under concurrent R>1 decode: `fast_build` for the attention-metadata builder (fixes the
   FlashAttention-metadata crash on the candidate forward) and populating the compiled model's
   persistent input buffers before each captured step. **Batched cudagraph capture is enabled** and
-  runs faster than eager (~+10–26% tok/s measured across R=1–16); capturing the R>1 candidate graph
+  runs faster than eager; capturing the R>1 candidate graph
   needs `max_num_seqs >= R*K`, above which it falls back to a still-compiled path.
 
 ## [0.1.1]
@@ -76,7 +76,7 @@ All notable changes to this project are documented here. The format is based on
 - Canon safety-head training/eval harnesses (`examples/slurm/{train_canonical,canonical_eval*,gpu_validate_h100}.sbatch`).
 - **Decode-matched feature extraction** (`scripts/decode_extract.py`) — the supported way to build
   value-head training data. The head is scored at inference on the hidden VFD computes during
-  *decode*, which differs from a *prefill* extraction (pooling/HF) by ~0.97 cosine; training on the
+  *decode*, which differs measurably from a *prefill* extraction (pooling/HF); training on the
   decode-matched features makes the head steer, whereas a prefill-trained head barely moves the
   unsafe rate. Generate-and-capture via the new `VFD_DUMP_HIDDEN` runner hook; see
   `docs/training-a-value-head.md`.
